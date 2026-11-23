@@ -12,7 +12,7 @@ from mediavault.adapters import AdapterError, build_default_registry
 from mediavault.asr import build_asr_backend
 from mediavault.config import Config
 from mediavault.jobs import JobManager
-from mediavault.llm import OpenAICompatibleClient
+from mediavault.llm import LLMError, OpenAICompatibleClient
 from mediavault.models import DownloadResult
 from mediavault.routing import parse_input
 from mediavault.summarize import Summarizer
@@ -67,6 +67,16 @@ class MediaVaultService:
         return None
 
     async def summarize(self, text: str, with_media: bool = True) -> str:
+        # Fail fast before downloading anything: the fusion LLM call is the
+        # one hard dependency of summarization. A non-empty value is enough,
+        # so local OpenAI-compatible servers can pass a placeholder key.
+        if not self.config.openai_api_key:
+            raise LLMError(
+                "summarize needs an OpenAI-compatible LLM endpoint: set OPENAI_BASE_URL "
+                "and OPENAI_API_KEY (a placeholder works for local Ollama/LM Studio). "
+                "parse_url and download work without any key."
+            )
+
         async def run() -> dict:
             urls = parse_input(text)
             if not urls:

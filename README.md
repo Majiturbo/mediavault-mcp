@@ -105,6 +105,25 @@ the video cannot be downloaded, the job still succeeds in caption-only mode
 and records the reason under pipeline.errors. Image sets skip the media
 stages (skipped:image-set).
 
+### Fully local, no commercial API key
+
+parse_url and download never need a key. Even summarize can run fully offline
+by pointing the OpenAI-compatible endpoint at a local server (Ollama, LM
+Studio, vLLM) and using local speech-to-text. The key just has to be a
+non-empty placeholder because local servers do not validate it. Example
+.env for Ollama plus on-device faster-whisper:
+
+    OPENAI_BASE_URL=http://localhost:11434/v1
+    OPENAI_API_KEY=ollama
+    MEDIAVAULT_LLM_MODEL=qwen2.5          # any local chat model
+    MEDIAVAULT_VLM_MODEL=llava            # a local vision model for keyframes
+    MEDIAVAULT_ASR_BACKEND=local          # faster-whisper, audio stays on-device
+    MEDIAVAULT_WHISPER_MODEL=base
+    MEDIAVAULT_WHISPER_DEVICE=mps         # cpu on CI/Linux, mps on Apple Silicon, cuda on NVIDIA
+
+Without a configured endpoint, parse_url/download still work, while summarize
+fails fast with an explicit message instead of downloading first.
+
 ### Summarization configuration
 
 | Variable | Default | Meaning |

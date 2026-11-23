@@ -75,7 +75,13 @@ def make_resource(canonical_id="douyin:1", platform="douyin"):
 
 
 def make_service(tmp_path, monkeypatch, resource=None, fail=False, adapter=None):
-    config = Config.load({"MEDIAVAULT_HOME": str(tmp_path / "vault")})
+    # Tests inject a FakeSummarizer, so a placeholder key is enough to pass
+    # the summarize fast-fail gate (mirrors a local Ollama-style endpoint).
+    config = Config.load({
+        "MEDIAVAULT_HOME": str(tmp_path / "vault"),
+        "OPENAI_BASE_URL": "http://localhost:11434/v1",
+        "OPENAI_API_KEY": "test-placeholder",
+    })
     registry = FakeRegistry(resource or make_resource(), fail=fail, adapter=adapter)
     monkeypatch.setattr(service_module, "build_default_registry", lambda cfg: registry)
     svc = MediaVaultService(config=config)
@@ -229,6 +235,37 @@ def test_pick_video_helper():
     assert pick(["a.jpg", "b.MP4", "c.wav"]) == "b.MP4"
     assert pick(["a.jpg", "b.png"]) is None
     assert pick([]) is None
+
+
+def test_summarize_without_key_fails_fast_and_does_not_download(tmp_path, monkeypatch):
+    config = Config.load({"MEDIAVAULT_HOME": str(tmp_path / "vault")})  # no OPENAI_API_KEY
+    registry = FakeRegistry(make_resource())
+    monkeypatch.setattr(service_module, "build_default_registry", lambda cfg: registry)
+    svc = MediaVaultService(config=config)
+
+    with pytest.raises(service_module.LLMError, match="OPENAI_API_KEY|OpenAI-compatible"):
+        run(svc.summarize("https://v.douyin.com/x/"))
+    # No job queued and no download attempted.
+    assert svc.list_jobs() == []
+    assert registry.adapter.download_calls == []
+
+
+def test_summarize_placeholder_key_allows_local_endpoint(tmp_path, monkeypatch):
+    # A non-empty placeholder key must pass the fast-fail gate (local servers
+    # do not validate it); the job then proceeds normally.
+    config = Config.load({
+        "MEDIAVAULT_HOME": str(tmp_path / "vault"),
+        "OPENAI_BASE_URL": "http://localhost:11434/v1",
+        "OPENAI_API_KEY": "ollama",
+    })
+    registry = FakeRegistry(make_resource())
+    monkeypatch.setattr(service_module, "build_default_registry", lambda cfg: registry)
+    svc = MediaVaultService(config=config)
+    svc._summarizer = FakeSummarizer()
+
+    job_id = run(svc.summarize("https://v.douyin.com/x/"))
+    job = run(_wait_job(svc, job_id))
+    assert job.status == "succeeded"
 
 
 def test_summarize_job_fails_on_missing_url(tmp_path, monkeypatch):
