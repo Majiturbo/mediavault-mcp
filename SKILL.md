@@ -30,6 +30,14 @@ requests to re-upload/redistribute downloaded content.
    - speed: smallest file, fastest
 3. User wants a summary / 文案 / 要点 -> call summarize, then poll get_job
    until status is succeeded or failed; surface the structured summary.
+   - Default summarize runs the full multimodal pipeline: it downloads the
+     video at "speed" profile, extracts audio (ASR transcript) and evenly
+     spread keyframes (VLM observations), and fuses them with the caption.
+   - Pass with_media=false for a fast caption-only summary with no download.
+   - Read summary.pipeline to state honestly what evidence was used:
+     source is multimodal | transcript+caption | vision+caption | caption-only,
+     and transcript/keyframes carry ok | off | not-configured | skipped-* |
+     error. Never claim audio/visual analysis that the markers do not show.
 4. Multiple links in one message are handled in a single call.
 
 ## Honesty rules
@@ -47,5 +55,10 @@ requests to re-upload/redistribute downloaded content.
 ## Environment
 
 Configured via environment or .env: MEDIAVAULT_HOME, MEDIAVAULT_PROXY,
-MEDIAVAULT_COOKIES_BROWSER / MEDIAVAULT_COOKIES_FILE, and (summaries)
-OPENAI_BASE_URL / OPENAI_API_KEY / MEDIAVAULT_LLM_MODEL.
+MEDIAVAULT_COOKIES_BROWSER / MEDIAVAULT_COOKIES_FILE. Summarization needs
+OPENAI_BASE_URL / OPENAI_API_KEY plus MEDIAVAULT_LLM_MODEL and
+MEDIAVAULT_VLM_MODEL (vision-capable). The pipeline is tuned by
+MEDIAVAULT_ASR_BACKEND (openai|local|off), MEDIAVAULT_ASR_MODEL,
+MEDIAVAULT_WHISPER_MODEL, MEDIAVAULT_KEYFRAME_MAX and MEDIAVAULT_KEYFRAME_WIDTH.
+ffmpeg must be on PATH for audio/frame extraction; local ASR additionally
+needs the optional dependency: uv pip install -e ".[local-asr]".

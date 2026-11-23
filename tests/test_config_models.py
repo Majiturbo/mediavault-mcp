@@ -20,6 +20,37 @@ def test_config_defaults_with_clean_env(tmp_path: Path):
     assert cfg.openai_api_key is None
     assert cfg.llm_model == "gpt-4o-mini"
     assert cfg.vlm_model == "gpt-4o-mini"
+    assert cfg.asr_backend == "openai"
+    assert cfg.asr_model == "whisper-1"
+    assert cfg.whisper_model == "base"
+    assert cfg.keyframe_max == 8
+    assert cfg.keyframe_width == 768
+
+
+def test_summarization_settings_from_env(tmp_path: Path):
+    cfg = Config.load({
+        "MEDIAVAULT_HOME": str(tmp_path / "vault"),
+        "MEDIAVAULT_ASR_BACKEND": "LOCAL",
+        "MEDIAVAULT_ASR_MODEL": "whisper-large",
+        "MEDIAVAULT_WHISPER_MODEL": "tiny",
+        "MEDIAVAULT_KEYFRAME_MAX": "12",
+        "MEDIAVAULT_KEYFRAME_WIDTH": "1024",
+    })
+    assert cfg.asr_backend == "local"  # normalized to lowercase
+    assert cfg.asr_model == "whisper-large"
+    assert cfg.whisper_model == "tiny"
+    assert cfg.keyframe_max == 12
+    assert cfg.keyframe_width == 1024
+
+
+def test_invalid_int_settings_fall_back_to_defaults(tmp_path: Path):
+    cfg = Config.load({
+        "MEDIAVAULT_HOME": str(tmp_path / "vault"),
+        "MEDIAVAULT_KEYFRAME_MAX": "lots",
+        "MEDIAVAULT_KEYFRAME_WIDTH": "",
+    })
+    assert cfg.keyframe_max == 8
+    assert cfg.keyframe_width == 768
 
 
 def test_config_env_beats_dotenv(tmp_path: Path, monkeypatch):

@@ -70,6 +70,37 @@ def test_job_manager_unknown_id():
     manager = JobManager()
     with pytest.raises(KeyError):
         manager.get("does-not-exist")
+    manager.close()
+
+
+def test_job_survives_closing_submitter_event_loop():
+    # Regression: create_task used to bind the job to the submitter loop, so
+    # a job submitted inside one asyncio.run never finished once it closed.
+    manager = JobManager()
+
+    async def work() -> dict:
+        await asyncio.sleep(0.05)
+        return {"ok": True}
+
+    async def submitter():
+        return manager.submit("test", work)
+
+    job_id = asyncio.run(submitter())  # this loop is now closed
+
+    async def waiter():
+        for _ in range(50):
+            if manager.get(job_id).status == "succeeded":
+                return True
+            await asyncio.sleep(0.02)
+        return False
+
+    assert asyncio.run(waiter()) is True
+    assert manager.get(job_id).result == {"ok": True}
+    manager.close()
+
+
+def test_close_without_submit_is_safe():
+    JobManager().close()
 
 
 async def _dict_shape():

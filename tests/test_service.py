@@ -14,19 +14,23 @@ from mediavault.service import MediaVaultService
 class FakeAdapter:
     name = "fake-adapter"
 
-    def __init__(self):
+    def __init__(self, files=None, fail: bool = False):
         self.download_calls: list[tuple] = []
+        self._files = files or ["/tmp/vault/douyin/x.mp4"]
+        self._fail = fail
 
     async def download(self, resource, quality="compat"):
         self.download_calls.append((resource.canonical_id, quality))
-        return [f"/tmp/vault/{resource.platform}/x.mp4"]
+        if self._fail:
+            raise AdapterError("download blocked: boom")
+        return self._files
 
 
 class FakeRegistry:
-    def __init__(self, resource: Resource, fail: bool = False):
+    def __init__(self, resource: Resource, fail: bool = False, adapter: FakeAdapter | None = None):
         self._resource = resource
         self._fail = fail
-        self.adapter = FakeAdapter()
+        self.adapter = adapter or FakeAdapter()
         self.probe_calls: list[str] = []
 
     async def probe(self, url):
@@ -41,11 +45,20 @@ class FakeRegistry:
 
 class FakeSummarizer:
     def __init__(self):
-        self.calls: list[Resource] = []
+        self.calls: list[tuple] = []
 
-    async def summarize(self, resource: Resource) -> dict:
-        self.calls.append(resource)
-        return {"tldr": "fake summary", "pipeline": {"source": "caption-only"}}
+    async def summarize(self, resource: Resource, video_path=None) -> dict:
+        self.calls.append((resource, video_path))
+        return {
+            "tldr": "fake summary",
+            "pipeline": {
+                "source": "caption-only",
+                "transcript": "off",
+                "keyframes": "off",
+                "errors": [],
+                "canonical_id": resource.canonical_id,
+            },
+        }
 
 
 def make_resource(canonical_id="douyin:1", platform="douyin"):
@@ -61,13 +74,22 @@ def make_resource(canonical_id="douyin:1", platform="douyin"):
     )
 
 
-def make_service(tmp_path, monkeypatch, resource=None, fail=False):
+def make_service(tmp_path, monkeypatch, resource=None, fail=False, adapter=None):
     config = Config.load({"MEDIAVAULT_HOME": str(tmp_path / "vault")})
-    registry = FakeRegistry(resource or make_resource(), fail=fail)
+    registry = FakeRegistry(resource or make_resource(), fail=fail, adapter=adapter)
     monkeypatch.setattr(service_module, "build_default_registry", lambda cfg: registry)
     svc = MediaVaultService(config=config)
     svc._summarizer = FakeSummarizer()
     return svc, registry
+
+
+async def _wait_job(svc, job_id):
+    for _ in range(50):
+        job = svc.jobs.get(job_id)
+        if job.status in {"succeeded", "failed"}:
+            return job
+        await asyncio.sleep(0.02)
+    return svc.jobs.get(job_id)
 
 
 def run(coro):
@@ -129,19 +151,84 @@ def test_summarize_submits_background_job(tmp_path, monkeypatch):
     job_id = run(svc.summarize("https://v.douyin.com/x/"))
     assert isinstance(job_id, str) and len(job_id) >= 8
 
-    async def wait_done():
-        for _ in range(50):
-            job = svc.jobs.get(job_id)
-            if job.status in {"succeeded", "failed"}:
-                return job
-            await asyncio.sleep(0.02)
-        return svc.jobs.get(job_id)
-
-    job = run(wait_done())
+    job = run(_wait_job(svc, job_id))
     assert job.status == "succeeded"
     assert job.result["resource_id"] == "douyin:1"
     assert job.result["summary"]["tldr"] == "fake summary"
-    assert isinstance(svc._summarizer.calls[0], Resource)
+    resource_arg, video_path = svc._summarizer.calls[0]
+    assert isinstance(resource_arg, Resource)
+    # Default path downloads a speed-profile video for media analysis.
+    assert video_path == "/tmp/vault/douyin/x.mp4"
+    assert registry.adapter.download_calls == [("douyin:1", "speed")]
+
+
+def test_summarize_with_media_false_skips_download(tmp_path, monkeypatch):
+    svc, registry = make_service(tmp_path, monkeypatch)
+    job_id = run(svc.summarize("https://v.douyin.com/x/", with_media=False))
+    job = run(_wait_job(svc, job_id))
+    assert job.status == "succeeded"
+    assert registry.adapter.download_calls == []
+    assert svc._summarizer.calls[0][1] is None
+
+
+def test_summarize_download_failure_falls_back_to_caption(tmp_path, monkeypatch):
+    adapter = FakeAdapter(fail=True)
+    svc, _ = make_service(tmp_path, monkeypatch, adapter=adapter)
+    job_id = run(svc.summarize("https://v.douyin.com/x/"))
+    job = run(_wait_job(svc, job_id))
+    assert job.status == "succeeded"
+    pipeline = job.result["summary"]["pipeline"]
+    assert pipeline["transcript"] == "skipped-no-local-file"
+    assert pipeline["keyframes"] == "skipped-no-local-file"
+    assert any("download:AdapterError" in e for e in pipeline["errors"])
+
+
+def test_summarize_non_video_download_marks_note(tmp_path, monkeypatch):
+    adapter = FakeAdapter(files=["/tmp/vault/douyin/pic.jpg"])
+    svc, _ = make_service(tmp_path, monkeypatch, adapter=adapter)
+    job_id = run(svc.summarize("https://v.douyin.com/x/"))
+    job = run(_wait_job(svc, job_id))
+    pipeline = job.result["summary"]["pipeline"]
+    assert "download:no-video-file" in pipeline["errors"]
+    assert svc._summarizer.calls[0][1] is None
+
+
+def test_summarize_image_set_skips_media_pipeline(tmp_path, monkeypatch):
+    image_resource = make_resource()
+    image_resource.content_type = "image_set"
+    svc, registry = make_service(tmp_path, monkeypatch, resource=image_resource)
+    job_id = run(svc.summarize("https://www.xiaohongshu.com/note/1"))
+    job = run(_wait_job(svc, job_id))
+    assert job.status == "succeeded"
+    assert registry.adapter.download_calls == []
+    assert "skipped:image-set" in job.result["summary"]["pipeline"]["errors"]
+
+
+def test_summarize_keeps_non_off_markers_when_degraded(tmp_path, monkeypatch):
+    svc, _ = make_service(tmp_path, monkeypatch, adapter=FakeAdapter(fail=True))
+
+    class ConfiguredButSkipped(FakeSummarizer):
+        async def summarize(self, resource, video_path=None):
+            payload = await super().summarize(resource, video_path=video_path)
+            payload["pipeline"]["transcript"] = "not-configured"
+            payload["pipeline"]["keyframes"] = "not-configured"
+            return payload
+
+    svc._summarizer = ConfiguredButSkipped()
+    job_id = run(svc.summarize("https://v.douyin.com/x/"))
+    job = run(_wait_job(svc, job_id))
+    pipeline = job.result["summary"]["pipeline"]
+    # Markers that explain why a stage did not run must not be overwritten.
+    assert pipeline["transcript"] == "not-configured"
+    assert pipeline["keyframes"] == "not-configured"
+    assert any("download:AdapterError" in e for e in pipeline["errors"])
+
+
+def test_pick_video_helper():
+    pick = MediaVaultService._pick_video
+    assert pick(["a.jpg", "b.MP4", "c.wav"]) == "b.MP4"
+    assert pick(["a.jpg", "b.png"]) is None
+    assert pick([]) is None
 
 
 def test_summarize_job_fails_on_missing_url(tmp_path, monkeypatch):
@@ -166,3 +253,14 @@ def test_job_helpers(tmp_path, monkeypatch):
     with pytest.raises(KeyError):
         svc.get_job("nope")
     assert svc.list_jobs() == []
+
+
+def test_service_close_stops_job_loop(tmp_path, monkeypatch):
+    svc, _ = make_service(tmp_path, monkeypatch)
+    # A submitted job forces the worker loop to start.
+    run(svc.summarize("https://v.douyin.com/x/"))
+    run(_wait_job(svc, svc.list_jobs()[0]["id"]))
+    assert svc.jobs._loop is not None
+    svc.close()
+    assert svc.jobs._loop is None
+    svc.close()  # idempotent after shutdown

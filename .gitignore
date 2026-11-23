@@ -5,10 +5,11 @@ __pycache__/
 dist/
 *.egg-info/
 
-# Local config & media
+# Local config & media (anchored to repo root so the src/mediavault
+# package directory is never matched on case-insensitive filesystems)
 .env
-output/
-MediaVault/
+/output/
+/MediaVault/
 
 # Tooling caches & artifacts
 .coverage

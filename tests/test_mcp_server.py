@@ -29,7 +29,7 @@ class FakeService:
             "resource": {"canonical_id": "douyin:1"},
         }]
 
-    async def summarize(self, text: str) -> str:
+    async def summarize(self, text: str, with_media: bool = True) -> str:
         return "job123abc"
 
     def get_job(self, job_id: str):
@@ -83,9 +83,15 @@ async def _in_memory_scenarios():
         assert result.isError is False
         assert content_json(result)["results"][0]["files"][0].endswith(".mp4")
 
-        # summarize returns a job handle
+        # summarize returns a job handle and exposes the with_media switch
         result = await client.call_tool("summarize", {"text": "https://v.douyin.com/x/"})
         assert content_json(result) == {"job_id": "job123abc", "poll_with": "get_job"}
+        assert "with_media" in schema["summarize"]["properties"]
+        result = await client.call_tool(
+            "summarize",
+            {"text": "https://v.douyin.com/x/", "with_media": False},
+        )
+        assert content_json(result)["job_id"] == "job123abc"
 
         # get_job found / missing handled inside the tool
         result = await client.call_tool("get_job", {"job_id": "job123abc"})

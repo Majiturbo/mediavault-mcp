@@ -1,7 +1,7 @@
 [project]
 name = "mediavault-mcp"
 version = "0.1.0"
-description = "Local stdio MCP server: paste a link, get native no-watermark media from any platform (adapter-based, with a summarization pipeline on the roadmap)."
+description = "Local stdio MCP server: paste a link, get native no-watermark media from any platform, with a multimodal (ASR + keyframe VLM + caption) video summarization pipeline."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -17,6 +17,9 @@ dev = ["pytest>=8.0.0", "pytest-cov>=5.0.0", "ruff>=0.8.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0", "pytest-cov>=5.0.0", "ruff>=0.8.0"]
+# Local, fully offline speech-to-text. The default OpenAI-compatible ASR
+# path needs no extra dependency.
+local-asr = ["faster-whisper>=1.0.0"]
 
 [tool.ruff]
 line-length = 100
@@ -50,4 +53,5 @@ source = ["src/mediavault"]
 [tool.coverage.report]
 exclude_lines = [
     "if __name__ == .__main__.:",
+    "^\\s*\\.\\.\\.\\s*$",
 ]
