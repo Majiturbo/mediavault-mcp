@@ -141,6 +141,32 @@ def test_local_whisper_missing_dependency(tmp_path, monkeypatch):
         run(backend.transcribe(tmp_path / "a.wav"))
 
 
+def test_local_whisper_passes_configured_device(tmp_path, monkeypatch):
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, model_name, device="cpu"):
+            seen["model"] = model_name
+            seen["device"] = device
+
+        def transcribe(self, path, vad_filter):
+            return iter([]), types.SimpleNamespace(language="en")
+
+    fake_module = types.ModuleType("faster_whisper")
+    fake_module.WhisperModel = FakeModel
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake_module)
+
+    cfg = make_config(
+        tmp_path,
+        MEDIAVAULT_ASR_BACKEND="local",
+        MEDIAVAULT_WHISPER_MODEL="tiny",
+        MEDIAVAULT_WHISPER_DEVICE="MPS",
+    )
+    backend = LocalWhisperASR(cfg)
+    run(backend.transcribe(tmp_path / "a.wav"))
+    assert seen == {"model": "tiny", "device": "mps"}  # lowercased by config
+
+
 def test_local_whisper_normalizes_output(tmp_path, monkeypatch):
     class FakeSegment:
         def __init__(self, start, end, text):
@@ -162,7 +188,7 @@ def test_local_whisper_normalizes_output(tmp_path, monkeypatch):
             )
 
     fake_module = types.ModuleType("faster_whisper")
-    fake_module.WhisperModel = lambda model_name: FakeModel()
+    fake_module.WhisperModel = lambda model_name, device="cpu": FakeModel()
     monkeypatch.setitem(sys.modules, "faster_whisper", fake_module)
 
     backend = LocalWhisperASR(

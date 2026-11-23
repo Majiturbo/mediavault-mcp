@@ -116,6 +116,7 @@ stages (skipped:image-set).
 | MEDIAVAULT_ASR_BACKEND | openai | openai (hosted) / local (faster-whisper) / off |
 | MEDIAVAULT_ASR_MODEL | whisper-1 | model id for /audio/transcriptions |
 | MEDIAVAULT_WHISPER_MODEL | base | faster-whisper size when backend=local |
+| MEDIAVAULT_WHISPER_DEVICE | cpu | local ASR device: cpu / mps (Apple Silicon) / cuda |
 | MEDIAVAULT_KEYFRAME_MAX | 8 | max sampled frames per video |
 | MEDIAVAULT_KEYFRAME_WIDTH | 768 | downscale width, caps VLM token usage |
 

@@ -17,6 +17,7 @@ DEFAULT_VLM_MODEL = "gpt-4o-mini"
 DEFAULT_ASR_BACKEND = "openai"  # openai | local | off
 DEFAULT_ASR_MODEL = "whisper-1"
 DEFAULT_WHISPER_MODEL = "base"
+DEFAULT_WHISPER_DEVICE = "cpu"  # cpu | mps (Apple Silicon) | cuda
 DEFAULT_KEYFRAME_MAX = 8
 DEFAULT_KEYFRAME_WIDTH = 768
 
@@ -80,6 +81,7 @@ class Config:
     asr_backend: str  # "openai" | "local" | "off"
     asr_model: str
     whisper_model: str
+    whisper_device: str
     keyframe_max: int
     keyframe_width: int
 
@@ -122,6 +124,10 @@ class Config:
                 _resolve(env, dotenv, "MEDIAVAULT_WHISPER_MODEL", DEFAULT_WHISPER_MODEL)
                 or DEFAULT_WHISPER_MODEL
             ),
+            whisper_device=(
+                _resolve(env, dotenv, "MEDIAVAULT_WHISPER_DEVICE", DEFAULT_WHISPER_DEVICE)
+                or DEFAULT_WHISPER_DEVICE
+            ).lower(),
             keyframe_max=_resolve_int(env, dotenv, "MEDIAVAULT_KEYFRAME_MAX", DEFAULT_KEYFRAME_MAX),
             keyframe_width=_resolve_int(
                 env, dotenv, "MEDIAVAULT_KEYFRAME_WIDTH", DEFAULT_KEYFRAME_WIDTH

@@ -127,7 +127,9 @@ class LocalWhisperASR:
                 "local ASR needs the optional dependency: pip install faster-whisper"
             ) from exc
 
-        model = WhisperModel(self._config.whisper_model)
+        model = WhisperModel(
+            self._config.whisper_model, device=self._config.whisper_device
+        )
         segments_iter, info = model.transcribe(str(audio_path), vad_filter=True)
         segments = [
             TranscriptSegment(
