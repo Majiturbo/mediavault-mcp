@@ -273,6 +273,37 @@ def test_registry_falls_back_to_ytdlp_when_f2_stale(tmp_path, monkeypatch):
     assert resource.fallback_chain == ["f2", "yt-dlp"]
 
 
+def test_proxy_argv_and_cookie_warning(tmp_path, monkeypatch):
+    adapter = make_adapter(tmp_path)
+    adapter.config = Config.load({
+        "MEDIAVAULT_HOME": str(tmp_path / "vault"),
+        "MEDIAVAULT_PROXY": "socks5://127.0.0.1:1080",
+        "MEDIAVAULT_COOKIES_FILE": str(tmp_path / "c.txt"),
+    })
+    enable(adapter, monkeypatch)
+    runner = FakeRunner(payload=DOUYIN_FIXTURE)
+    monkeypatch.setattr(adapter, "_run", runner)
+
+    resource = run(adapter.probe(canonicalize("https://v.douyin.com/abc/")))
+    args = runner.calls[0]
+    assert "--proxy" in args and "socks5://127.0.0.1:1080" in args
+    # f2 takes cookies via its own YAML config: warn instead of a bad file arg
+    assert "--cookie" not in args and "-M" in args
+    assert any("YAML config" in note for note in resource.notes)
+
+
+def test_invalid_proxy_becomes_adapter_error(tmp_path, monkeypatch):
+    adapter = make_adapter(tmp_path)
+    adapter.config = Config.load({
+        "MEDIAVAULT_HOME": str(tmp_path / "vault"),
+        "MEDIAVAULT_PROXY": "ftp://nope:1",
+    })
+    enable(adapter, monkeypatch)
+    monkeypatch.setattr(adapter, "_run", FakeRunner(payload=DOUYIN_FIXTURE))
+    with pytest.raises(AdapterError, match="not supported"):
+        run(adapter.probe(canonicalize("https://v.douyin.com/abc/")))
+
+
 def test_real_which_and_subprocess_runner(tmp_path, monkeypatch):
     import sys
     adapter = make_adapter(tmp_path)

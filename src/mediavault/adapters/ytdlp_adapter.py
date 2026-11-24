@@ -18,6 +18,7 @@ from typing import Any
 
 from mediavault.adapters.base import Adapter, AdapterError, AdapterStale
 from mediavault.models import Author, MediaItem, Resource
+from mediavault.network import NetworkConfigError, ytdlp_network_opts
 from mediavault.routing import CanonicalURL
 
 # yt-dlp extractor names we know deliver clean source streams.
@@ -56,29 +57,28 @@ class YtDlpAdapter(Adapter):
     })
     capabilities = frozenset({"video", "image_set", "no_watermark"})
 
-    def _base_opts(self) -> dict[str, Any]:
+    def _base_opts(self) -> tuple[dict[str, Any], list[str]]:
+        network, warnings = ytdlp_network_opts(self.config)
         opts: dict[str, Any] = {
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
             "skip_download": True,
             "ignoreerrors": False,
+            **network,
         }
-        if self.config.proxy:
-            opts["proxy"] = self.config.proxy
-        if self.config.cookies_file:
-            opts["cookiefile"] = self.config.cookies_file
-        elif self.config.cookies_browser:
-            opts["cookiesfrombrowser"] = (self.config.cookies_browser,)
-        return opts
+        return opts, warnings
 
-    def _blocking_probe(self, url: str) -> dict[str, Any]:
+    def _blocking_probe(self, url: str) -> tuple[dict[str, Any], list[str]]:
         from yt_dlp import YoutubeDL
         from yt_dlp.utils import DownloadError, ExtractorError
 
         try:
-            with YoutubeDL(self._base_opts()) as ydl:
-                return ydl.extract_info(url, download=False)
+            opts, warnings = self._base_opts()
+            with YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False), warnings
+        except NetworkConfigError as exc:
+            raise AdapterError(str(exc)) from exc
         except (DownloadError, ExtractorError) as exc:
             text = str(exc)
             stale_markers = (
@@ -90,7 +90,9 @@ class YtDlpAdapter(Adapter):
             raise AdapterError(text) from exc
 
     async def probe(self, url: CanonicalURL) -> Resource:
-        info = await asyncio.to_thread(self._blocking_probe, url.raw_url)
+        info, network_warnings = await asyncio.to_thread(
+            self._blocking_probe, url.raw_url
+        )
         if not info:
             raise AdapterError("yt-dlp returned no metadata")
 
@@ -113,7 +115,7 @@ class YtDlpAdapter(Adapter):
             items.append(self._item_from_info(info, 0, no_wm))
 
         platform = url.platform if url.platform != "unknown" else (extractor or "unknown")
-        return Resource(
+        resource = Resource(
             canonical_id=_extract_canonical_id(info, url, platform),
             platform=platform,
             content_type=(
@@ -133,6 +135,8 @@ class YtDlpAdapter(Adapter):
             items=items,
             adapter_used=self.name,
         )
+        resource.notes.extend(network_warnings)
+        return resource
 
     @staticmethod
     def _item_from_info(info: dict[str, Any], index: int, no_wm: str) -> MediaItem:
@@ -161,21 +165,23 @@ class YtDlpAdapter(Adapter):
         from yt_dlp import YoutubeDL
         from yt_dlp.utils import DownloadError, ExtractorError
 
-        opts = self._base_opts()
-        opts.pop("skip_download", None)
-        opts.update({
-            "format": _QUALITY_FORMAT.get(quality, _QUALITY_FORMAT["compat"]),
-            "outtmpl": str(out_dir / "%(title).80B [%(id)s].%(ext)s"),
-            "writethumbnail": False,
-            "writedescription": False,
-            "writeinfojson": True,
-            "restrictfilenames": False,
-            "merged_output_format": "mp4" if quality == "compat" else None,
-        })
         before = {p.resolve() for p in out_dir.rglob("*") if p.is_file()}
         try:
+            opts, _warnings = self._base_opts()
+            opts.pop("skip_download", None)
+            opts.update({
+                "format": _QUALITY_FORMAT.get(quality, _QUALITY_FORMAT["compat"]),
+                "outtmpl": str(out_dir / "%(title).80B [%(id)s].%(ext)s"),
+                "writethumbnail": False,
+                "writedescription": False,
+                "writeinfojson": True,
+                "restrictfilenames": False,
+                "merged_output_format": "mp4" if quality == "compat" else None,
+            })
             with YoutubeDL(opts) as ydl:
                 ydl.extract_info(url, download=True)
+        except NetworkConfigError as exc:
+            raise AdapterError(str(exc)) from exc
         except (DownloadError, ExtractorError) as exc:
             raise AdapterError(str(exc)) from exc
         after = {p.resolve() for p in out_dir.rglob("*") if p.is_file()}

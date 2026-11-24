@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import httpx
 
 from mediavault.config import Config
+from mediavault.network import normalize_proxy
 
 
 class LLMError(Exception):
@@ -65,7 +66,7 @@ class OpenAICompatibleClient:
 
         async with httpx.AsyncClient(
             timeout=self._timeout,
-            proxy=self._config.proxy,
+            proxy=normalize_proxy(self._config.proxy),
             transport=self._transport,
         ) as client:
             response = await client.post(url, json=payload, headers=headers)

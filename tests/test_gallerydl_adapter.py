@@ -162,18 +162,49 @@ def test_nonzero_exit_stale_vs_hard_error(tmp_path, monkeypatch):
 
 
 def test_proxy_and_cookies_in_args(tmp_path, monkeypatch):
+    cookie_file = tmp_path / "cookies.txt"
+    cookie_file.write_text(
+        "# Netscape HTTP Cookie File\n"
+        ".xiaohongshu.com\tTRUE\t/\tFALSE\t9999999999\tsid\tabc\n",
+        encoding="utf-8",
+    )
     adapter = make_adapter(
         tmp_path,
-        MEDIAVAULT_PROXY="http://127.0.0.1:7890",
-        MEDIAVAULT_COOKIES_FILE="/tmp/cookies.txt",
+        MEDIAVAULT_PROXY="127.0.0.1:7890",  # normalized to http://127.0.0.1:7890
+        MEDIAVAULT_COOKIES_FILE=str(cookie_file),
     )
     enable(adapter, monkeypatch)
     runner = FakeRunner(stdout="https://h/a.jpg")
     monkeypatch.setattr(adapter, "_run", runner)
-    run(adapter.probe(canonicalize("https://www.xiaohongshu.com/x/y")))
+    resource = run(adapter.probe(canonicalize("https://www.xiaohongshu.com/x/y")))
     args = runner.calls[0]
     assert "--proxy" in args and "http://127.0.0.1:7890" in args
-    assert "--cookies" in args and "/tmp/cookies.txt" in args
+    assert "--cookies" in args and str(cookie_file) in args
+    assert resource.notes == []
+
+
+def test_missing_cookie_skipped_and_browser_fallback(tmp_path, monkeypatch):
+    adapter = make_adapter(
+        tmp_path,
+        MEDIAVAULT_COOKIES_FILE=str(tmp_path / "gone.txt"),
+        MEDIAVAULT_COOKIES_BROWSER="firefox",
+    )
+    enable(adapter, monkeypatch)
+    runner = FakeRunner(stdout="https://h/a.jpg")
+    monkeypatch.setattr(adapter, "_run", runner)
+    resource = run(adapter.probe(canonicalize("https://www.xiaohongshu.com/x/y")))
+    args = runner.calls[0]
+    assert "--cookies" not in args  # missing file never passed to the CLI
+    assert "--cookies-from-browser" in args and "firefox" in args
+    assert any("missing" in note for note in resource.notes)
+
+
+def test_invalid_proxy_raises_adapter_error(tmp_path, monkeypatch):
+    adapter = make_adapter(tmp_path, MEDIAVAULT_PROXY="bad proxy with space")
+    enable(adapter, monkeypatch)
+    monkeypatch.setattr(adapter, "_run", FakeRunner(stdout="https://h/a.jpg"))
+    with pytest.raises(AdapterError, match="whitespace"):
+        run(adapter.probe(canonicalize("https://www.xiaohongshu.com/x/y")))
 
 
 def test_real_which_and_subprocess(tmp_path, monkeypatch):

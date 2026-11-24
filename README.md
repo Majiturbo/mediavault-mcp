@@ -20,10 +20,11 @@ their own OpenAI-compatible endpoint.
 - M1: optional f2 CLI adapter ranks ahead of yt-dlp for
   Douyin/Xiaohongshu/Kuaishou/TikTok/Weibo/Bilibili and transparently falls back
   when the binary is absent or a page shape drifts; self-built SSR adapters next.
-- M2 (in progress): media library cache landed (atomic evidence.json /
-  summary.json, per-video reuse with refresh, list_library index) plus the
-  optional gallery-dl image-set adapter (Xiaohongshu/Instagram/Pinterest/Weibo,
-  Stale->fallback chain f2 > gallery-dl > yt-dlp); cookie/proxy hardening remains.
+- M2 (in progress): media library cache (atomic evidence.json / summary.json,
+  per-video reuse with refresh, list_library index), the optional gallery-dl
+  image-set adapter (Xiaohongshu/Instagram/Pinterest/Weibo, Stale->fallback
+  chain f2 > gallery-dl > yt-dlp), and centralized proxy/cookie hardening
+  (scheme validation, Netscape cookie checks, honest skip warnings).
 - M3: richer local models (speaker diarization, denser scene detection).
 
 ## Install (uv recommended; needs Python 3.11+)
@@ -122,6 +123,23 @@ files still exist (a media request whose frames were deleted recomputes
 automatically rather than returning broken image blocks). Pass refresh=true
 to force a fresh run, and call list_library to browse what is cached; fused
 summarize output is stored alongside as summary.json.
+
+#### Proxy and cookie policy
+
+One network module (`mediavault/network.py`) governs every backend, so the
+rules are identical across yt-dlp, gallery-dl, f2 and the OpenAI-compatible
+clients:
+
+- `MEDIAVAULT_PROXY` accepts `http(s)://`, `socks4://`, `socks5://` and
+  `socks5h://`; a bare `host:port` is assumed HTTP. Malformed values fail
+  fast with a clear NetworkConfigError instead of a downstream stack trace.
+- `MEDIAVAULT_COOKIES_FILE` is validated as a Netscape cookies.txt before use.
+  A missing or malformed file is skipped with a warning on the result's
+  `notes`, and `MEDIAVAULT_COOKIES_BROWSER` takes over when set, so one bad
+  path never aborts an extraction.
+- gallery-dl additionally forwards `--cookies-from-browser`; f2 manages cookies
+  through its own YAML config, so for f2 the proxy is forwarded and the cookie
+  environment variables produce an explicit reminder rather than a bad flag.
 
 ### summarize: optional server-side fusion
 
@@ -258,7 +276,7 @@ and Python 3.11/3.12 (see .github/workflows/ci.yml); build a wheel with
       llm.py                 OpenAI-compatible chat client
       summarize.py           key-free evidence collection + optional fusion
       config.py              env / .env configuration
-    tests/                   212 offline tests incl. stdio, ffmpeg, f2, gallery-dl and cache
+    tests/                   228 offline tests incl. stdio, ffmpeg, f2, gallery-dl, cache and network policy
     SKILL.md                 thin Agent Skill wrapper for chat agents
 
 ## Legal

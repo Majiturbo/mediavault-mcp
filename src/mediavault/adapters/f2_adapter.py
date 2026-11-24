@@ -29,6 +29,7 @@ from typing import Any
 
 from mediavault.adapters.base import Adapter, AdapterError, AdapterStale
 from mediavault.models import Author, MediaItem, Resource
+from mediavault.network import NetworkConfigError, f2_network_opts
 from mediavault.routing import CanonicalURL
 
 # platform id -> f2 app subcommand
@@ -75,14 +76,24 @@ class F2Adapter(Adapter):
             )
         return binary
 
-    def _probe_args(self, binary: str, app: str, url: str, out_dir: Path) -> list[str]:
-        # -M: write metadata without downloading the media bytes.
-        return [binary, app, "-u", url, "-p", str(out_dir), "-M"]
+    def _network_opts(self) -> tuple[list[str], list[str]]:
+        try:
+            return f2_network_opts(self.config)
+        except NetworkConfigError as exc:
+            raise AdapterError(str(exc)) from exc
 
-    def _download_args(self, binary: str, app: str, url: str, out_dir: Path) -> list[str]:
+    def _probe_args(
+        self, binary: str, app: str, url: str, out_dir: Path, net_opts: list[str]
+    ) -> list[str]:
+        # -M: write metadata without downloading the media bytes.
+        return [binary, *net_opts, app, "-u", url, "-p", str(out_dir), "-M"]
+
+    def _download_args(
+        self, binary: str, app: str, url: str, out_dir: Path, net_opts: list[str]
+    ) -> list[str]:
         # f2 selects the platform's source stream; the yt-dlp quality presets
         # do not map onto f2 filters, so quality is best-effort here.
-        return [binary, app, "-u", url, "-p", str(out_dir)]
+        return [binary, *net_opts, app, "-u", url, "-p", str(out_dir)]
 
     async def _run(
         self, args: list[str], out_dir: Path
@@ -125,9 +136,10 @@ class F2Adapter(Adapter):
         if app is None:
             raise AdapterError(f"f2 has no app for platform {url.platform!r}")
 
+        net_opts, warnings = self._network_opts()
         out_dir = self._work_dir(url, "probe")
         code, stdout, stderr = await self._run(
-            self._probe_args(binary, app, url.raw_url, out_dir), out_dir
+            self._probe_args(binary, app, url.raw_url, out_dir, net_opts), out_dir
         )
         if code != 0:
             raise self._failure(stderr or stdout)
@@ -144,7 +156,9 @@ class F2Adapter(Adapter):
         except json.JSONDecodeError as exc:
             raise AdapterStale(f"f2 metadata is not valid JSON: {exc}") from exc
 
-        return self._parse(payload, url)
+        resource = self._parse(payload, url)
+        resource.notes.extend(warnings)
+        return resource
 
     # ------------------------------------------------------------------ #
     # Download
@@ -155,13 +169,15 @@ class F2Adapter(Adapter):
         if app is None:
             raise AdapterError(f"f2 has no app for platform {resource.platform!r}")
 
+        net_opts, warnings = self._network_opts()
+        resource.notes.extend(warnings)
         content_id = _slug(resource.canonical_id.split(":", 1)[-1])
         out_dir = self.config.ensure_home() / resource.platform / content_id
         out_dir.mkdir(parents=True, exist_ok=True)
         before = {p.resolve() for p in out_dir.rglob("*") if p.is_file()}
 
         code, stdout, stderr = await self._run(
-            self._download_args(binary, app, resource.page_url, out_dir), out_dir
+            self._download_args(binary, app, resource.page_url, out_dir, net_opts), out_dir
         )
         if code != 0:
             raise self._failure(stderr or stdout)

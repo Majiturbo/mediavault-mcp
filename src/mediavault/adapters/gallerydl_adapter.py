@@ -26,6 +26,7 @@ from pathlib import Path
 
 from mediavault.adapters.base import Adapter, AdapterError, AdapterStale
 from mediavault.models import Author, MediaItem, Resource
+from mediavault.network import NetworkConfigError, gallerydl_network_opts
 from mediavault.routing import CanonicalURL
 
 _PLATFORMS = frozenset({
@@ -66,20 +67,20 @@ class GalleryDLAdapter(Adapter):
             )
         return binary
 
-    def _common_opts(self) -> list[str]:
-        opts: list[str] = []
-        if self.config.proxy:
-            opts += ["--proxy", self.config.proxy]
-        if self.config.cookies_file:
-            opts += ["--cookies", self.config.cookies_file]
-        return opts
+    def _network_opts(self) -> tuple[list[str], list[str]]:
+        try:
+            return gallerydl_network_opts(self.config)
+        except NetworkConfigError as exc:
+            raise AdapterError(str(exc)) from exc
 
-    def _probe_args(self, binary: str, url: str) -> list[str]:
+    def _probe_args(self, binary: str, url: str, net_opts: list[str]) -> list[str]:
         # -g / --get-urls: print direct URLs without downloading.
-        return [binary, *self._common_opts(), "-g", url]
+        return [binary, *net_opts, "-g", url]
 
-    def _download_args(self, binary: str, url: str, out_dir: Path) -> list[str]:
-        return [binary, *self._common_opts(), "-D", str(out_dir), url]
+    def _download_args(
+        self, binary: str, url: str, out_dir: Path, net_opts: list[str]
+    ) -> list[str]:
+        return [binary, *net_opts, "-D", str(out_dir), url]
 
     async def _run(self, args: list[str], out_dir: Path) -> tuple[int, str, str]:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -123,9 +124,10 @@ class GalleryDLAdapter(Adapter):
     # ------------------------------------------------------------------ #
     async def probe(self, url: CanonicalURL) -> Resource:
         binary = self._require_available()
+        net_opts, warnings = self._network_opts()
         work_dir = self.config.ensure_home() / ".gallery-dl" / "probe" / url.platform
         code, stdout, stderr = await self._run(
-            self._probe_args(binary, url.raw_url), work_dir
+            self._probe_args(binary, url.raw_url, net_opts), work_dir
         )
         if code != 0:
             raise self._failure(stderr or stdout)
@@ -143,7 +145,7 @@ class GalleryDLAdapter(Adapter):
             MediaItem(kind="video", url=u, index=len(items) + i, no_watermark="unknown")
             for i, u in enumerate(videos)
         )
-        return Resource(
+        resource = Resource(
             canonical_id=self._canonical_id(url),
             platform=url.platform,
             content_type="image_set" if not videos else "mixed",
@@ -153,16 +155,20 @@ class GalleryDLAdapter(Adapter):
             items=items,
             adapter_used=self.name,
         )
+        resource.notes.extend(warnings)
+        return resource
 
     async def download(self, resource: Resource, quality: str = "compat") -> list[str]:
         binary = self._require_available()
+        net_opts, warnings = self._network_opts()
+        resource.notes.extend(warnings)
         content_id = _slug(resource.canonical_id.split(":", 1)[-1])
         out_dir = self.config.ensure_home() / resource.platform / content_id
         out_dir.mkdir(parents=True, exist_ok=True)
         before = {p.resolve() for p in out_dir.rglob("*") if p.is_file()}
 
         code, stdout, stderr = await self._run(
-            self._download_args(binary, resource.page_url, out_dir), out_dir
+            self._download_args(binary, resource.page_url, out_dir, net_opts), out_dir
         )
         if code != 0:
             raise self._failure(stderr or stdout)

@@ -20,6 +20,7 @@ from typing import Protocol
 import httpx
 
 from mediavault.config import Config
+from mediavault.network import normalize_proxy
 
 
 class ASRError(Exception):
@@ -80,7 +81,7 @@ class OpenAICompatibleASR:
 
         async with httpx.AsyncClient(
             timeout=self._timeout,
-            proxy=self._config.proxy,
+            proxy=normalize_proxy(self._config.proxy),
             transport=self._transport,
         ) as client:
             response = await client.post(url, headers=headers, data=data, files=files)

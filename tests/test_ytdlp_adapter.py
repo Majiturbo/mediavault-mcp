@@ -179,18 +179,73 @@ def test_probe_empty_info_raises(tmp_path, fake_ydl):
         run(adapter.probe(canonicalize("https://youtu.be/x")))
 
 
+def _write_netscape_cookies(path: Path) -> Path:
+    path.write_text(
+        "# Netscape HTTP Cookie File\n"
+        ".example.com\tTRUE\t/\tFALSE\t9999999999\tsid\tabc123\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_proxy_and_cookie_options_forwarded(tmp_path, fake_ydl):
+    cookie_file = _write_netscape_cookies(tmp_path / "cookies.txt")
     adapter = make_adapter(
         tmp_path,
-        MEDIAVAULT_PROXY="http://127.0.0.1:7890",
-        MEDIAVAULT_COOKIES_FILE="/tmp/cookies.txt",
+        MEDIAVAULT_PROXY="127.0.0.1:7890",  # bare host:port gets http:// prefix
+        MEDIAVAULT_COOKIES_FILE=str(cookie_file),
     )
     FakeYDL.scripted_info = video_info()
-    run(adapter.probe(canonicalize("https://www.tiktok.com/@u/video/7412")))
+    resource = run(adapter.probe(canonicalize("https://www.tiktok.com/@u/video/7412")))
     opts = FakeYDL.instances[-1].opts
     assert opts["proxy"] == "http://127.0.0.1:7890"
-    assert opts["cookiefile"] == "/tmp/cookies.txt"
+    assert opts["cookiefile"] == str(cookie_file)
     assert "cookiesfrombrowser" not in opts
+    assert resource.notes == []  # valid config, no warnings
+
+
+def test_missing_cookie_file_is_skipped_with_warning(tmp_path, fake_ydl):
+    adapter = make_adapter(
+        tmp_path, MEDIAVAULT_COOKIES_FILE=str(tmp_path / "gone.txt"),
+    )
+    FakeYDL.scripted_info = video_info()
+    resource = run(adapter.probe(canonicalize("https://youtu.be/x")))
+    opts = FakeYDL.instances[-1].opts
+    assert "cookiefile" not in opts
+    assert any("gone.txt" in note and "missing" in note for note in resource.notes)
+
+
+def test_invalid_cookie_file_falls_back_to_browser(tmp_path, fake_ydl):
+    bad = tmp_path / "cookies.txt"
+    bad.write_text("this is not a netscape file\nno-tabs-here\n", encoding="utf-8")
+    adapter = make_adapter(
+        tmp_path,
+        MEDIAVAULT_COOKIES_FILE=str(bad),
+        MEDIAVAULT_COOKIES_BROWSER="chrome",
+    )
+    FakeYDL.scripted_info = video_info()
+    resource = run(adapter.probe(canonicalize("https://youtu.be/x")))
+    opts = FakeYDL.instances[-1].opts
+    assert "cookiefile" not in opts
+    assert opts["cookiesfrombrowser"] == ("chrome",)
+    assert any("invalid" in note for note in resource.notes)
+
+
+def test_invalid_proxy_raises_adapter_error(tmp_path, fake_ydl):
+    adapter = make_adapter(tmp_path, MEDIAVAULT_PROXY="ftp://bad-scheme:7890")
+    FakeYDL.scripted_info = video_info()
+    with pytest.raises(AdapterError, match="not supported"):
+        run(adapter.probe(canonicalize("https://youtu.be/x")))
+
+
+def test_invalid_proxy_in_download_raises_adapter_error(tmp_path, fake_ydl):
+    adapter = make_adapter(tmp_path, MEDIAVAULT_PROXY="ftp://bad-scheme:7890")
+    resource = Resource(
+        canonical_id="tiktok:7412", platform="tiktok", content_type="video",
+        page_url="https://www.tiktok.com/@u/video/7412", items=[],
+    )
+    with pytest.raises(AdapterError, match="not supported"):
+        run(adapter.download(resource))
 
 
 def test_cookies_from_browser_forwarded(tmp_path, fake_ydl):

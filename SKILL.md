@@ -66,6 +66,9 @@ requests to re-upload/redistribute downloaded content.
   watermarks were removed by cropping or inpainting.
 - If the response is marked degraded, say which adapter failed and that the
   result came from a fallback.
+- Resource `notes` may carry network-policy warnings (a missing/invalid
+  cookies.txt was skipped, or f2 needs cookies in its own YAML config); relay
+  them instead of silently assuming the configured proxy/cookies were used.
 - Private/deleted/region-locked content may fail; relay the adapter error
   verbatim instead of guessing.
 - Downloads are for the user's own study of public content; remind about
