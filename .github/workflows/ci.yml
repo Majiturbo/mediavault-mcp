@@ -19,12 +19,13 @@ jobs:
       - name: Install ffmpeg (Linux)
         if: runner.os == 'Linux'
         run: |
-          # GH-hosted apt mirrors occasionally stall; retry before giving up.
+          # GH-hosted apt mirrors occasionally stall. timeout turns a hang
+          # into a non-zero exit so the retry loop can land on a healthy mirror.
           for attempt in 1 2 3; do
-            if sudo apt-get update && sudo apt-get install -y ffmpeg; then
+            if sudo timeout 180 apt-get update && sudo timeout 300 apt-get install -y ffmpeg; then
               break
             fi
-            echo "apt attempt ${attempt} failed; retrying..." >&2
+            echo "apt attempt ${attempt} failed or timed out; retrying..." >&2
             sleep 10
           done
           ffmpeg -version | head -1
