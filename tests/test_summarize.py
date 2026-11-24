@@ -3,8 +3,11 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from mediavault import media
 from mediavault.asr import ASRError, Transcription, TranscriptSegment
+from mediavault.llm import LLMError
 from mediavault.models import Author, Resource
 from mediavault.summarize import Summarizer, _format_ms
 from mediavault.vision import VisualFact
@@ -127,6 +130,7 @@ def test_caption_only_pipeline_markers():
         "source": "caption-only",
         "transcript": "off",
         "keyframes": "off",
+        "frames_extracted": 0,
         "errors": [],
         "canonical_id": "douyin:1",
     }
@@ -244,7 +248,7 @@ def test_without_asr_backend_marks_not_configured(monkeypatch, tmp_path):
     assert result["pipeline"]["keyframes"] == "ok"
 
 
-def test_vision_unavailable_marks_not_configured(monkeypatch, tmp_path):
+def test_frames_extracted_for_host_when_vlm_unavailable(monkeypatch, tmp_path):
     patch_media(monkeypatch)
     llm = FakeLLM("{}")
     asr = FakeASR()
@@ -253,18 +257,21 @@ def test_vision_unavailable_marks_not_configured(monkeypatch, tmp_path):
 
     result = run(summarizer.summarize(resource(), video_path=tmp_path / "clip.mp4"))
 
-    assert result["pipeline"]["keyframes"] == "not-configured"
+    # No server VLM, but ffmpeg frames are still produced for the host agent.
+    assert result["pipeline"]["keyframes"] == "extracted"
+    assert result["pipeline"]["frames_extracted"] == 2
     assert vision.frame_inputs == []
     assert result["pipeline"]["source"] == "transcript+caption"
 
 
-def test_no_vision_analyzer_marks_not_configured(monkeypatch, tmp_path):
+def test_no_vision_analyzer_still_extracts_frames(monkeypatch, tmp_path):
     patch_media(monkeypatch)
     llm = FakeLLM("{}")
     summarizer = Summarizer(llm, FakeASR(), None, FakeConfig())
 
     result = run(summarizer.summarize(resource(), video_path=tmp_path / "clip.mp4"))
-    assert result["pipeline"]["keyframes"] == "not-configured"
+    assert result["pipeline"]["keyframes"] == "extracted"
+    assert result["pipeline"]["frames_extracted"] == 2
 
 
 def test_keyframe_extraction_failure_is_isolated(monkeypatch, tmp_path):
@@ -283,7 +290,7 @@ def test_keyframe_extraction_failure_is_isolated(monkeypatch, tmp_path):
 
     assert result["pipeline"]["keyframes"] == "error"
     assert result["pipeline"]["transcript"] == "ok"
-    assert any("vision: MediaToolError" in e for e in result["pipeline"]["errors"])
+    assert any("keyframes: MediaToolError" in e for e in result["pipeline"]["errors"])
     assert result["pipeline"]["source"] == "transcript+caption"
 
 
@@ -330,7 +337,8 @@ def test_empty_transcription_marks_empty(monkeypatch, tmp_path):
 
     result = run(summarizer.summarize(resource(), video_path=tmp_path / "clip.mp4"))
     assert result["pipeline"]["transcript"] == "empty"
-    assert result["pipeline"]["source"] == "caption-only"
+    # No speech text, but keyframes were still extracted for the host agent.
+    assert result["pipeline"]["source"] == "frames+caption"
 
 
 def test_long_transcript_is_truncated(monkeypatch, tmp_path):
@@ -351,3 +359,59 @@ def test_format_ms_helper():
     assert _format_ms(1500) == "00:00:01"
     assert _format_ms(3_723_000) == "01:02:03"
     assert _format_ms(-5) == "00:00:00"
+
+
+# --------------------------------------------------------------------------- #
+# Key-free evidence collection (no server-side LLM)
+# --------------------------------------------------------------------------- #
+def test_collect_evidence_bundle_exposes_segments_and_frame_paths(monkeypatch, tmp_path):
+    patch_media(monkeypatch)
+    summarizer = Summarizer(None, FakeASR(), None, FakeConfig())
+
+    bundle = run(summarizer.collect_evidence(resource(), video_path=tmp_path / "clip.mp4"))
+    payload = bundle.to_dict()
+
+    assert payload["transcript"] == "完整 转写"
+    assert payload["transcript_segments"] == [
+        {"start_ms": 0, "end_ms": 1500, "text": "完整"},
+        {"start_ms": 1500, "end_ms": 3000, "text": "转写"},
+    ]
+    assert len(payload["frame_paths"]) == 2
+    assert payload["frames_extracted"] == 2
+    assert payload["pipeline"]["transcript"] == "ok"
+    assert payload["pipeline"]["keyframes"] == "extracted"
+    assert payload["pipeline"]["source"] == "transcript+caption"
+
+
+def test_collect_evidence_without_video_is_caption_only():
+    summarizer = Summarizer(None, FakeASR(), FakeVision(), FakeConfig())
+    bundle = run(summarizer.collect_evidence(resource()))  # no local file
+
+    assert bundle.video_path is None
+    assert bundle.frame_paths == []
+    assert bundle.transcription is None
+    status = bundle.to_dict()["pipeline"]
+    assert status["transcript"] == "off"
+    assert status["keyframes"] == "off"
+    assert status["source"] == "caption-only"
+
+
+def test_summarize_without_llm_raises_and_points_to_evidence_path():
+    summarizer = Summarizer(None)
+    with pytest.raises(LLMError, match="collect_evidence"):
+        run(summarizer.summarize(resource()))
+
+
+def test_extraction_error_marker_survives_without_vision(monkeypatch, tmp_path):
+    patch_media(monkeypatch)
+
+    async def boom(video, out_dir, *, max_frames, width):
+        raise media.MediaToolError("ffmpeg exited 1")
+
+    monkeypatch.setattr(media, "extract_keyframes", boom)
+    # No VLM analyzer: _describe_frames must preserve the extraction error
+    # rather than overwriting it with "extracted"/"not-configured".
+    summarizer = Summarizer(FakeLLM("{}"), FakeASR(), None, FakeConfig())
+    result = run(summarizer.summarize(resource(), video_path=tmp_path / "clip.mp4"))
+    assert result["pipeline"]["keyframes"] == "error"
+    assert any("keyframes: MediaToolError" in e for e in result["pipeline"]["errors"])

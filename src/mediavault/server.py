@@ -1,9 +1,11 @@
 """stdio MCP server surface.
 
-Five tools, intentionally small:
+Six tools, intentionally small:
   parse_url  - resolve pasted share text/URLs to normalized metadata (no bytes)
   download   - fetch native media into MEDIAVAULT_HOME
-  summarize  - submit an async caption-based summary job (M3 adds audio/vision)
+  analyze    - key-free evidence: caption + local transcript + keyframe images
+               returned as content blocks for THIS agent's model to reason over
+  summarize  - optional server-side fusion job; needs a configured LLM endpoint
   get_job    - poll one job
   list_jobs  - list recent jobs
 
@@ -15,8 +17,9 @@ which would silently drop results for multi-link messages.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 
 from mediavault.service import MediaVaultService
 
@@ -51,6 +54,25 @@ async def download(text: str, quality: str = "compat") -> dict:
     """
     results = await service().download(text, quality=quality)
     return {"count": len(results), "results": results}
+
+
+@mcp.tool()
+async def analyze(text: str, with_media: bool = True) -> list:
+    """Collect video evidence WITHOUT any server-side API key, for this
+    agent's own model to summarize. Returns one JSON text block (title,
+    author, caption, timestamped transcript, pipeline status) followed by one
+    image content block per extracted keyframe, so a vision-capable agent can
+    see the frames directly. Local faster-whisper handles speech when
+    configured; nothing is sent to a third-party model. Set with_media=false
+    for caption/metadata only (no download). Use summarize instead only if you
+    want the MCP server itself to produce the fused structured summary."""
+    evidence = await service().analyze(text, with_media=with_media)
+    blocks: list = [evidence]
+    for frame_path in evidence.get("frame_paths", []):
+        path = Path(frame_path)
+        if path.exists():
+            blocks.append(Image(path=path))
+    return blocks
 
 
 @mcp.tool()

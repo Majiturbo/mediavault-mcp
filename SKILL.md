@@ -1,6 +1,6 @@
 ---
 name: mediavault
-description: Parse and download native, no-watermark media from pasted social-media links (YouTube, X, TikTok, Instagram, Bilibili, Douyin, Xiaohongshu, Kuaishou and 1800+ yt-dlp sites), and summarize post/video content. Use whenever the user pastes a share link or share text containing a media URL and asks to parse, download, save, extract original media, or summarize the content.
+description: Parse and download native, no-watermark media from pasted social-media links (YouTube, X, TikTok, Instagram, Bilibili, Douyin, Xiaohongshu, Kuaishou and 1800+ yt-dlp sites), and gather key-free video evidence (transcript plus keyframe images) or produce fused summaries. Use whenever the user pastes a share link or share text containing a media URL and asks to parse, download, save, extract original media, or summarize the content.
 ---
 
 # mediavault
@@ -28,16 +28,24 @@ requests to re-upload/redistribute downloaded content.
    - compat (default): <=1080p H.264 MP4, plays and edits everywhere
    - quality: highest source stream (may be HEVC/AV1, needs a modern player)
    - speed: smallest file, fastest
-3. User wants a summary / 文案 / 要点 -> call summarize, then poll get_job
-   until status is succeeded or failed; surface the structured summary.
-   - Default summarize runs the full multimodal pipeline: it downloads the
-     video at "speed" profile, extracts audio (ASR transcript) and evenly
-     spread keyframes (VLM observations), and fuses them with the caption.
-   - Pass with_media=false for a fast caption-only summary with no download.
-   - Read summary.pipeline to state honestly what evidence was used:
-     source is multimodal | transcript+caption | vision+caption | caption-only,
-     and transcript/keyframes carry ok | off | not-configured | skipped-* |
-     error. Never claim audio/visual analysis that the markers do not show.
+3. User wants a summary / 文案 / 要点:
+   - Prefer analyze (no API key needed). It returns one JSON evidence block
+     (title, author, caption, timestamped transcript, pipeline status)
+     followed by one image content block per keyframe. Reason over these
+     blocks with YOUR OWN model: read the transcript text and look at the
+     frame images directly, then write the summary in the user's language.
+     Local faster-whisper does speech on-device; nothing is sent to a
+     third-party model. with_media=false gives caption/metadata only.
+   - Use summarize only when the deployment explicitly configured a
+     server-side OpenAI-compatible endpoint and wants the MCP server itself
+     to emit the fused structured summary; it returns a job id, so poll
+     get_job until succeeded/failed. It raises a clear error without a key,
+     in which case fall back to analyze.
+   - Read pipeline markers honestly: source is multimodal | transcript+caption
+     | vision+caption | frames+caption | caption-only; transcript/keyframes
+     carry ok | off | not-configured | extracted | skipped-* | empty | error.
+     Never claim audio/visual analysis the markers do not show, and when
+     keyframes are "extracted" the evidence is in the image blocks, not text.
 4. Multiple links in one message are handled in a single call.
 
 ## Honesty rules
@@ -55,10 +63,12 @@ requests to re-upload/redistribute downloaded content.
 ## Environment
 
 Configured via environment or .env: MEDIAVAULT_HOME, MEDIAVAULT_PROXY,
-MEDIAVAULT_COOKIES_BROWSER / MEDIAVAULT_COOKIES_FILE. Summarization needs
-OPENAI_BASE_URL / OPENAI_API_KEY plus MEDIAVAULT_LLM_MODEL and
-MEDIAVAULT_VLM_MODEL (vision-capable). The pipeline is tuned by
-MEDIAVAULT_ASR_BACKEND (openai|local|off), MEDIAVAULT_ASR_MODEL,
-MEDIAVAULT_WHISPER_MODEL, MEDIAVAULT_KEYFRAME_MAX and MEDIAVAULT_KEYFRAME_WIDTH.
-ffmpeg must be on PATH for audio/frame extraction; local ASR additionally
-needs the optional dependency: uv pip install -e ".[local-asr]".
+MEDIAVAULT_COOKIES_BROWSER / MEDIAVAULT_COOKIES_FILE. parse_url, download and
+analyze need NO API key. Only the optional server-side summarize fusion needs
+OPENAI_BASE_URL / OPENAI_API_KEY (a placeholder works with local Ollama/LM
+Studio) plus MEDIAVAULT_LLM_MODEL and MEDIAVAULT_VLM_MODEL. The pipeline is
+tuned by MEDIAVAULT_ASR_BACKEND (openai|local|off), MEDIAVAULT_ASR_MODEL,
+MEDIAVAULT_WHISPER_MODEL, MEDIAVAULT_WHISPER_DEVICE (cpu|mps|cuda),
+MEDIAVAULT_KEYFRAME_MAX and MEDIAVAULT_KEYFRAME_WIDTH. ffmpeg must be on PATH
+for audio/frame extraction; on-device ASR additionally needs
+uv pip install -e ".[local-asr]".

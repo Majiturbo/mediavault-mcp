@@ -26,9 +26,13 @@ class MediaVaultService:
         self.config = config or Config.load()
         self.registry = build_default_registry(self.config)
         self.jobs = JobManager()
-        llm = OpenAICompatibleClient(self.config)
+        # LLM-backed fusion is optional: without a key we still build the
+        # key-free evidence path (local ASR + ffmpeg frames) for analyze().
+        llm = (
+            OpenAICompatibleClient(self.config) if self.config.openai_api_key else None
+        )
         asr_backend = build_asr_backend(self.config)
-        vision = VisionAnalyzer(llm, self.config) if self.config.openai_api_key else None
+        vision = VisionAnalyzer(llm, self.config) if llm is not None else None
         self._summarizer = Summarizer(llm, asr_backend, vision, self.config)
 
     async def parse_text(self, text: str) -> list[dict]:
@@ -66,15 +70,64 @@ class MediaVaultService:
                 return path
         return None
 
+    async def _acquire_video(self, resource, url) -> tuple[str | None, str | None]:
+        """Download the speed-profile clip for evidence collection.
+
+        Returns (video_path, media_note); a failure degrades to no local file
+        instead of raising, so caption/metadata evidence still comes back.
+        """
+        if resource.content_type == "image_set":
+            return None, "skipped:image-set"
+        try:
+            chain = self.registry.chain_for(url)
+            adapter = next(a for a in chain if a.name == resource.adapter_used)
+            files = await adapter.download(resource, "speed")
+            video_path = self._pick_video(files)
+            if video_path is None:
+                return None, "download:no-video-file"
+            return video_path, None
+        except AdapterError as exc:
+            return None, f"download:{type(exc).__name__}"
+
+    async def analyze(self, text: str, with_media: bool = True) -> dict:
+        """Key-free evidence collection for the host agent's own LLM.
+
+        Probes the link, optionally downloads the clip, and returns caption +
+        local transcript + on-disk keyframe paths (the server attaches the
+        frames as MCP image blocks). No server-side model call is made.
+        """
+        urls = parse_input(text)
+        if not urls:
+            raise AdapterError("no http(s) URL found in the input")
+        resource = await self.registry.probe(urls[0])
+
+        video_path: str | None = None
+        media_note: str | None = None
+        if with_media:
+            video_path, media_note = await self._acquire_video(resource, urls[0])
+
+        bundle = await self._summarizer.collect_evidence(resource, video_path)
+        payload = bundle.to_dict()
+        if media_note:
+            payload["pipeline"]["errors"].append(media_note)
+            pipeline = payload["pipeline"]
+            if video_path is None and pipeline["transcript"] == "off":
+                pipeline["transcript"] = "skipped-no-local-file"
+            if video_path is None and pipeline["keyframes"] in {"off", "not-configured"}:
+                pipeline["keyframes"] = "skipped-no-local-file"
+        return payload
+
     async def summarize(self, text: str, with_media: bool = True) -> str:
         # Fail fast before downloading anything: the fusion LLM call is the
-        # one hard dependency of summarization. A non-empty value is enough,
-        # so local OpenAI-compatible servers can pass a placeholder key.
+        # one hard dependency of server-side summarization. A non-empty value
+        # is enough, so local OpenAI-compatible servers pass a placeholder key.
         if not self.config.openai_api_key:
             raise LLMError(
                 "summarize needs an OpenAI-compatible LLM endpoint: set OPENAI_BASE_URL "
                 "and OPENAI_API_KEY (a placeholder works for local Ollama/LM Studio). "
-                "parse_url and download work without any key."
+                "Alternatively call analyze(), which needs no key and returns transcript "
+                "plus keyframe images for this agent's own model to reason over. "
+                "parse_url and download also work without any key."
             )
 
         async def run() -> dict:
@@ -85,20 +138,8 @@ class MediaVaultService:
 
             video_path: str | None = None
             media_note: str | None = None
-            if with_media and resource.content_type != "image_set":
-                try:
-                    chain = self.registry.chain_for(urls[0])
-                    adapter = next(a for a in chain if a.name == resource.adapter_used)
-                    # speed profile: summarization needs evidence, not master quality
-                    files = await adapter.download(resource, "speed")
-                    video_path = self._pick_video(files)
-                    if video_path is None:
-                        media_note = "download:no-video-file"
-                except AdapterError as exc:
-                    # Honest degradation: caption-only summary still has value.
-                    media_note = f"download:{type(exc).__name__}"
-            elif resource.content_type == "image_set":
-                media_note = "skipped:image-set"
+            if with_media:
+                video_path, media_note = await self._acquire_video(resource, urls[0])
 
             summary = await self._summarizer.summarize(resource, video_path=video_path)
             if media_note:

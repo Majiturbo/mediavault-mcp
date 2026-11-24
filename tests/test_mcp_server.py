@@ -4,13 +4,17 @@ import asyncio
 import json
 import os
 import sys
+import tempfile
+from pathlib import Path
 
 import pytest
 
 from mediavault import server
 from mediavault.adapters.base import AdapterError
 
-EXPECTED_TOOLS = {"parse_url", "download", "summarize", "get_job", "list_jobs"}
+EXPECTED_TOOLS = {
+    "parse_url", "download", "analyze", "summarize", "get_job", "list_jobs",
+}
 
 
 class FakeService:
@@ -28,6 +32,23 @@ class FakeService:
             "output_dir": "/tmp/vault",
             "resource": {"canonical_id": "douyin:1"},
         }]
+
+    async def analyze(self, text: str, with_media: bool = True):
+        frame_dir = Path(tempfile.mkdtemp())
+        real_frame = frame_dir / "frame_001.jpg"
+        real_frame.write_bytes(bytes([255, 216, 1, 2, 3]))
+        return {
+            "canonical_id": "douyin:1",
+            "title": "测试",
+            "transcript": "完整 转写",
+            "transcript_segments": [{"start_ms": 0, "end_ms": 1500, "text": "完整"}],
+            "frames_extracted": 2,
+            # Second path intentionally missing: the server must skip it.
+            "frame_paths": [str(real_frame), str(frame_dir / "gone.jpg")],
+            "visual_facts": [],
+            "pipeline": {"source": "transcript+caption", "transcript": "ok",
+                         "keyframes": "extracted", "errors": []},
+        }
 
     async def summarize(self, text: str, with_media: bool = True) -> str:
         return "job123abc"
@@ -82,6 +103,20 @@ async def _in_memory_scenarios():
         )
         assert result.isError is False
         assert content_json(result)["results"][0]["files"][0].endswith(".mp4")
+
+        # analyze returns mixed blocks: JSON evidence text + keyframe images,
+        # and needs no server-side API key. Missing frame files are skipped.
+        result = await client.call_tool("analyze", {"text": "https://v.douyin.com/x/"})
+        assert result.isError is False
+        assert result.content[0].type == "text"
+        evidence = json.loads(result.content[0].text)
+        assert evidence["transcript"] == "完整 转写"
+        assert len(result.content) == 2  # one text block + one existing image
+        image_block = result.content[1]
+        assert image_block.type == "image"
+        assert image_block.mimeType == "image/jpeg"
+        assert image_block.data
+        assert "with_media" in schema["analyze"]["properties"]
 
         # summarize returns a job handle and exposes the with_media switch
         result = await client.call_tool("summarize", {"text": "https://v.douyin.com/x/"})

@@ -146,6 +146,7 @@ def test_full_service_pipeline_with_real_ffmpeg(tmp_path, monkeypatch):
         "source": "multimodal",
         "transcript": "ok",
         "keyframes": "ok",
+        "frames_extracted": 3,
         "errors": [],
         "canonical_id": "douyin:e2e1",
     }

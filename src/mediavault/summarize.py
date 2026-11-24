@@ -1,18 +1,26 @@
-"""Multimodal summarization pipeline.
+"""Multimodal evidence collection and optional LLM fusion.
 
-Three evidence channels are fused into one stable JSON schema:
-  1. platform caption / title / description (always available)
-  2. speech transcript  (ffmpeg audio extract -> ASR backend)
-  3. visual facts       (ffmpeg keyframes     -> VLM analyzer)
+Two layers, deliberately separable so an MCP host that already runs an LLM
+does not need a second model or API key:
+
+  collect_evidence()  - deterministic and key-free. Extracts a 16 kHz audio
+    track and timeline-spread keyframes with ffmpeg, transcribes speech via
+    the configured ASR backend (local faster-whisper needs no key), and only
+    runs a VLM over the frames when one is configured. Returns an
+    EvidenceBundle the host agent can reason over directly (frames are also
+    attached as MCP image blocks by the server).
+
+  summarize()         - optional convenience for clients without their own
+    model: collect_evidence() then one OpenAI-compatible chat call that fuses
+    everything into the stable structured summary schema.
 
 Every media stage is independently fault-tolerant: a missing audio stream,
 a disabled backend or a failed VLM call is recorded honestly in the pipeline
-block instead of failing the whole summary. With no local video file the
-summarizer degrades to the M0 caption-only behavior.
+block instead of failing the whole run.
 
-Stable output shape:
+Stable summary shape:
   tldr, chapters, transcript, visual_facts, entities, hooks, language,
-  pipeline {source, transcript, keyframes, errors, canonical_id}
+  pipeline {source, transcript, keyframes, errors, canonical_id, frames_extracted}
 """
 
 from __future__ import annotations
@@ -59,13 +67,55 @@ class PipelineStatus:
     source: str = "caption-only"
     transcript: str = "off"
     keyframes: str = "off"
+    frames_extracted: int = 0
     errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class EvidenceBundle:
+    resource: Resource
+    video_path: Path | None
+    transcription: Transcription | None
+    frame_paths: list[Path]
+    visual_facts: list[VisualFact]
+    status: PipelineStatus
+
+    def to_dict(self) -> dict:
+        """Key-free evidence payload for the host agent's own LLM."""
+        transcription = self.transcription
+        return {
+            "canonical_id": self.resource.canonical_id,
+            "platform": self.resource.platform,
+            "title": self.resource.title,
+            "author": self.resource.author.name,
+            "caption": self.resource.caption,
+            "page_url": self.resource.page_url,
+            "transcript": transcription.text if transcription else "",
+            "transcript_segments": [
+                {"start_ms": s.start_ms, "end_ms": s.end_ms, "text": s.text}
+                for s in (transcription.segments if transcription else [])
+            ],
+            "frames_extracted": len(self.frame_paths),
+            "frame_paths": [str(p) for p in self.frame_paths],
+            "visual_facts": [
+                {"frame": f.frame, "index": f.index, "observation": f.observation}
+                for f in self.visual_facts
+            ],
+            "pipeline": {
+                "source": self.status.source,
+                "transcript": self.status.transcript,
+                "keyframes": self.status.keyframes,
+                "frames_extracted": self.status.frames_extracted,
+                "errors": self.status.errors,
+                "canonical_id": self.resource.canonical_id,
+            },
+        }
 
 
 class Summarizer:
     def __init__(
         self,
-        llm: OpenAICompatibleClient,
+        llm: OpenAICompatibleClient | None = None,
         asr_backend: ASRBackend | None = None,
         vision: VisionAnalyzer | None = None,
         config=None,
@@ -102,14 +152,11 @@ class Summarizer:
             return None
 
     # ------------------------------------------------------------------ #
-    # Stage 2: keyframe vision analysis
+    # Stage 2: local keyframe extraction (no key) + optional VLM describe
     # ------------------------------------------------------------------ #
-    async def _run_vision(
+    async def _extract_frames(
         self, video_path: Path, status: PipelineStatus
-    ) -> list[VisualFact]:
-        if self._vision is None or not await self._vision.available():
-            status.keyframes = "not-configured"
-            return []
+    ) -> list[Path]:
         try:
             frames = await media.extract_keyframes(
                 video_path,
@@ -117,16 +164,62 @@ class Summarizer:
                 max_frames=self._config.keyframe_max if self._config else 8,
                 width=self._config.keyframe_width if self._config else 768,
             )
-            if not frames:
+            status.frames_extracted = len(frames)
+            return frames
+        except media.MediaToolError as exc:
+            status.keyframes = "error"
+            status.errors.append(f"keyframes: {type(exc).__name__}: {exc}"[:300])
+            return []
+
+    async def _describe_frames(
+        self, frames: list[Path], status: PipelineStatus
+    ) -> list[VisualFact]:
+        if self._vision is None or not await self._vision.available():
+            # Frames may still be on disk; the host agent receives them as
+            # image blocks and does its own vision reasoning. Keep any error
+            # marker already recorded by the extraction stage.
+            if status.keyframes != "error":
+                status.keyframes = "extracted" if frames else "not-configured"
+            return []
+        if not frames:
+            if status.keyframes != "error":
                 status.keyframes = "skipped-no-video"
-                return []
+            return []
+        try:
             facts = await self._vision.describe_frames(frames)
             status.keyframes = "ok" if facts else "empty"
             return facts
-        except (media.MediaToolError, LLMError) as exc:
+        except (LLMError, media.MediaToolError) as exc:
             status.keyframes = "error"
             status.errors.append(f"vision: {type(exc).__name__}: {exc}"[:300])
             return []
+
+    # ------------------------------------------------------------------ #
+    # Key-free evidence collection
+    # ------------------------------------------------------------------ #
+    async def collect_evidence(
+        self, resource: Resource, video_path: str | Path | None = None
+    ) -> EvidenceBundle:
+        status = PipelineStatus()
+        transcription: Transcription | None = None
+        frames: list[Path] = []
+
+        facts: list[VisualFact] = []
+        if video_path is not None:
+            path = Path(video_path)
+            transcription = await self._run_asr(path, status)
+            frames = await self._extract_frames(path, status)
+            facts = await self._describe_frames(frames, status)
+
+        status.source = self._derive_source(transcription, facts, frames)
+        return EvidenceBundle(
+            resource=resource,
+            video_path=Path(video_path) if video_path is not None else None,
+            transcription=transcription,
+            frame_paths=frames,
+            visual_facts=facts,
+            status=status,
+        )
 
     # ------------------------------------------------------------------ #
     # Prompt construction (token replacement, never %/format: captions
@@ -168,40 +261,43 @@ class Summarizer:
 
     @staticmethod
     def _derive_source(
-        transcription: Transcription | None, facts: list[VisualFact]
+        transcription: Transcription | None,
+        facts: list[VisualFact],
+        frames: list[Path],
     ) -> str:
         has_audio = transcription is not None and bool(transcription.text)
         has_vision = bool(facts)
+        has_frames = bool(frames)
         if has_audio and has_vision:
             return "multimodal"
         if has_audio:
             return "transcript+caption"
         if has_vision:
             return "vision+caption"
+        if has_frames:
+            # Frames available for the host agent even without a server VLM.
+            return "frames+caption"
         return "caption-only"
 
     # ------------------------------------------------------------------ #
-    # Public entry point
+    # Optional server-side fusion (requires a configured LLM endpoint)
     # ------------------------------------------------------------------ #
     async def summarize(
         self, resource: Resource, video_path: str | Path | None = None
     ) -> dict:
-        status = PipelineStatus()
-        transcription: Transcription | None = None
-        facts: list[VisualFact] = []
-
-        if video_path is not None:
-            path = Path(video_path)
-            transcription = await self._run_asr(path, status)
-            facts = await self._run_vision(path, status)
-
-        status.source = self._derive_source(transcription, facts)
-
+        if self._llm is None:
+            raise LLMError(
+                "no LLM endpoint configured; use collect_evidence() and let the "
+                "host agent reason over the returned evidence instead"
+            )
+        bundle = await self.collect_evidence(resource, video_path)
         raw = await self._llm.chat(
             [
                 ChatMessage(
                     role="user",
-                    content=self._build_prompt(resource, transcription, facts),
+                    content=self._build_prompt(
+                        resource, bundle.transcription, bundle.visual_facts
+                    ),
                 )
             ],
             json_mode=True,
@@ -220,16 +316,18 @@ class Summarizer:
                 "language": "unknown",
             }
 
+        transcription = bundle.transcription
         structured["transcript"] = transcription.text if transcription else ""
         structured["visual_facts"] = [
             {"frame": f.frame, "index": f.index, "observation": f.observation}
-            for f in facts
+            for f in bundle.visual_facts
         ]
         structured["pipeline"] = {
-            "source": status.source,
-            "transcript": status.transcript,
-            "keyframes": status.keyframes,
-            "errors": status.errors,
+            "source": bundle.status.source,
+            "transcript": bundle.status.transcript,
+            "keyframes": bundle.status.keyframes,
+            "frames_extracted": bundle.status.frames_extracted,
+            "errors": bundle.status.errors,
             "canonical_id": resource.canonical_id,
         }
         return structured
