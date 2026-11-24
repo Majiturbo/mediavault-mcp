@@ -19,8 +19,13 @@ jobs:
       - name: Install ffmpeg (Linux)
         if: runner.os == 'Linux'
         run: |
-          # GH-hosted apt mirrors occasionally stall. timeout turns a hang
-          # into a non-zero exit so the retry loop can land on a healthy mirror.
+          # GitHub ubuntu runners ship ffmpeg in the image; only install when absent.
+          if command -v ffmpeg >/dev/null 2>&1; then
+            echo "ffmpeg preinstalled: $(ffmpeg -version | head -1)"
+            exit 0
+          fi
+          # Fallback for minimal images: bound apt with timeout so a stalled
+          # GH mirror becomes a non-zero exit and the retry loop can recover.
           for attempt in 1 2 3; do
             if sudo timeout 180 apt-get update && sudo timeout 300 apt-get install -y ffmpeg; then
               break
@@ -32,7 +37,12 @@ jobs:
 
       - name: Install ffmpeg (macOS)
         if: runner.os == 'macOS'
-        run: brew install ffmpeg
+        run: |
+          if brew list ffmpeg >/dev/null 2>&1; then
+            echo "ffmpeg already installed via brew"
+          else
+            brew install ffmpeg
+          fi
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
