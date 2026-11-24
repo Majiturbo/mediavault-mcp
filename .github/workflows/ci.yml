@@ -18,7 +18,16 @@ jobs:
 
       - name: Install ffmpeg (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: |
+          # GH-hosted apt mirrors occasionally stall; retry before giving up.
+          for attempt in 1 2 3; do
+            if sudo apt-get update && sudo apt-get install -y ffmpeg; then
+              break
+            fi
+            echo "apt attempt ${attempt} failed; retrying..." >&2
+            sleep 10
+          done
+          ffmpeg -version | head -1
 
       - name: Install ffmpeg (macOS)
         if: runner.os == 'macOS'
