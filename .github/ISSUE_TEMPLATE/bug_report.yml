@@ -1,0 +1,77 @@
+name: Bug report
+description: Report a reproducible problem with extraction, analysis or the MCP server
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill in every section;
+        reports without reproduction steps or logs are hard to triage.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and what you expected instead.
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Source URL or share text
+      description: The link or pasted share text that triggers the issue. Remove any private tokens.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Douyin
+        - Xiaohongshu (RED)
+        - Kuaishou
+        - TikTok
+        - Bilibili
+        - Weibo
+        - Instagram
+        - YouTube
+        - X / Twitter
+        - Other (describe below)
+    validations:
+      required: true
+  - type: checkboxes
+    id: adapters
+    attributes:
+      label: Optional backends installed
+      description: Check the external CLIs available on your PATH.
+      options:
+        - label: f2 (the 'f --version' command works)
+        - label: gallery-dl (the 'gallery-dl --version' command works)
+        - label: Neither / not sure
+  - type: textarea
+    id: config
+    attributes:
+      label: Environment
+      description: Output of 'python --version', OS, and whether MEDIAVAULT_PROXY or cookies are set (do NOT paste cookie values or API keys).
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output / MCP response
+      description: Paste the error message, degraded markers, or Resource notes. Redact any credentials.
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I am on the latest commit on the main branch.
+          required: true
+        - label: This concerns publicly available content and involves no DRM circumvention.
+          required: true

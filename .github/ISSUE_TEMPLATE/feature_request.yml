@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest an adapter, platform, tool or pipeline improvement
+title: "[feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do that the server cannot do today?
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type of request
+      options:
+        - New platform / adapter support
+        - Existing adapter improvement
+        - New MCP tool or response field
+        - Local analysis (ASR / keyframes / diarization)
+        - Configuration / proxy / cookies
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you want. For adapter requests, note whether a CLI (f2, gallery-dl or yt-dlp) already covers the site.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or related projects you already tried.
+  - type: checkboxes
+    id: honesty
+    attributes:
+      label: Project constraints to respect
+      options:
+        - label: No third-party parser API keys; cookies and proxy stay local.
+        - label: The analyze tool must remain key-free and never call a model.
+        - label: No-watermark claims stay honest (native/unknown/none, no fake removal).

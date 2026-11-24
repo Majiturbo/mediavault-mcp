@@ -198,7 +198,8 @@ uv build                                                # wheel + sdist
 
 CI runs the same three checks on Ubuntu/macOS × Python 3.11/3.12. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the adapter contract and coverage
-policy, [CHANGELOG.md](CHANGELOG.md) for release history, and
+policy, [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community standards,
+[CHANGELOG.md](CHANGELOG.md) for release history, and
 [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## ⚖️ License

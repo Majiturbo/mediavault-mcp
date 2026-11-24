@@ -191,7 +191,8 @@ uv build                                                # 构建 wheel 与 sdist
 ```
 
 CI 在 Ubuntu/macOS × Python 3.11/3.12 上跑同样三项检查。适配器契约与覆盖
-策略见 [CONTRIBUTING.md](CONTRIBUTING.md)，发布历史见
+策略见 [CONTRIBUTING.md](CONTRIBUTING.md)，社区行为准则见
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)，发布历史见
 [CHANGELOG.md](CHANGELOG.md)，漏洞上报见 [SECURITY.md](SECURITY.md)。
 
 ## ⚖️ 许可证

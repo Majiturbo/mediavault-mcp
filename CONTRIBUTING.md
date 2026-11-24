@@ -3,6 +3,9 @@
 Thanks for your interest in mediavault-mcp. This project keeps a strict
 quality bar so the MCP server stays reliable when platform page shapes drift.
 
+By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+Please open issues and pull requests using the templates under .github/.
+
 ## Development setup
 
 Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and ffmpeg on PATH
