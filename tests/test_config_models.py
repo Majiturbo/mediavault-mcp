@@ -27,6 +27,7 @@ def test_config_defaults_with_clean_env(tmp_path: Path):
     assert cfg.keyframe_max == 8
     assert cfg.keyframe_width == 768
     assert cfg.f2_bin == "f2"
+    assert cfg.gallerydl_bin == "gallery-dl"
 
 
 def test_summarization_settings_from_env(tmp_path: Path):
@@ -39,6 +40,7 @@ def test_summarization_settings_from_env(tmp_path: Path):
         "MEDIAVAULT_KEYFRAME_MAX": "12",
         "MEDIAVAULT_KEYFRAME_WIDTH": "1024",
         "MEDIAVAULT_F2_BIN": "/opt/homebrew/bin/f2",
+        "MEDIAVAULT_GALLERYDL_BIN": "/opt/homebrew/bin/gallery-dl",
     })
     assert cfg.asr_backend == "local"  # normalized to lowercase
     assert cfg.asr_model == "whisper-large"
@@ -47,6 +49,7 @@ def test_summarization_settings_from_env(tmp_path: Path):
     assert cfg.keyframe_max == 12
     assert cfg.keyframe_width == 1024
     assert cfg.f2_bin == "/opt/homebrew/bin/f2"
+    assert cfg.gallerydl_bin == "/opt/homebrew/bin/gallery-dl"
 
 
 def test_invalid_int_settings_fall_back_to_defaults(tmp_path: Path):

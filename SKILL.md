@@ -28,6 +28,10 @@ requests to re-upload/redistribute downloaded content.
    - compat (default): <=1080p H.264 MP4, plays and edits everywhere
    - quality: highest source stream (may be HEVC/AV1, needs a modern player)
    - speed: smallest file, fastest
+   - Image-set posts (content_type=image_set, e.g. Xiaohongshu/Instagram)
+     return every source image; extraction walks the optional chain
+     f2 > gallery-dl > yt-dlp and transparently falls back when a CLI is
+     absent or stale, surfaced via the degraded flag.
 3. User wants a summary / 文案 / 要点:
    - Prefer analyze (no API key needed). It returns one JSON evidence block
      (title, author, caption, timestamped transcript, pipeline status)
@@ -78,4 +82,7 @@ tuned by MEDIAVAULT_ASR_BACKEND (openai|local|off), MEDIAVAULT_ASR_MODEL,
 MEDIAVAULT_WHISPER_MODEL, MEDIAVAULT_WHISPER_DEVICE (cpu|mps|cuda),
 MEDIAVAULT_KEYFRAME_MAX and MEDIAVAULT_KEYFRAME_WIDTH. ffmpeg must be on PATH
 for audio/frame extraction; on-device ASR additionally needs
-uv pip install -e ".[local-asr]".
+uv pip install -e ".[local-asr]". The optional f2 and gallery-dl CLIs are
+auto-detected on PATH (override with MEDIAVAULT_F2_BIN /
+MEDIAVAULT_GALLERYDL_BIN); neither is required, and both honor the proxy /
+cookies settings when present.

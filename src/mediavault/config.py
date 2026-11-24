@@ -21,6 +21,7 @@ DEFAULT_WHISPER_DEVICE = "cpu"  # cpu | mps (Apple Silicon) | cuda
 DEFAULT_KEYFRAME_MAX = 8
 DEFAULT_KEYFRAME_WIDTH = 768
 DEFAULT_F2_BIN = "f2"  # optional f2 CLI; absence triggers yt-dlp fallback
+DEFAULT_GALLERYDL_BIN = "gallery-dl"  # optional image-set CLI; absence -> fallback
 
 
 def _load_dotenv(path: Path) -> dict[str, str]:
@@ -87,6 +88,8 @@ class Config:
     keyframe_width: int
     # Optional external f2 CLI used by the CN-platform adapter.
     f2_bin: str
+    # Optional external gallery-dl CLI for image sets.
+    gallerydl_bin: str
 
     @classmethod
     def load(cls, environ: dict[str, str] | None = None) -> Config:
@@ -138,6 +141,10 @@ class Config:
             f2_bin=(
                 _resolve(env, dotenv, "MEDIAVAULT_F2_BIN", DEFAULT_F2_BIN)
                 or DEFAULT_F2_BIN
+            ),
+            gallerydl_bin=(
+                _resolve(env, dotenv, "MEDIAVAULT_GALLERYDL_BIN", DEFAULT_GALLERYDL_BIN)
+                or DEFAULT_GALLERYDL_BIN
             ),
         )
 

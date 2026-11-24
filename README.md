@@ -17,12 +17,13 @@ their own OpenAI-compatible endpoint.
   analysis: on-device transcript plus keyframe image blocks for the calling
   agent, with optional server-side fusion through an OpenAI-compatible
   endpoint.
-- M1 (in progress): optional f2 CLI adapter now ranks ahead of yt-dlp for
+- M1: optional f2 CLI adapter ranks ahead of yt-dlp for
   Douyin/Xiaohongshu/Kuaishou/TikTok/Weibo/Bilibili and transparently falls back
   when the binary is absent or a page shape drifts; self-built SSR adapters next.
 - M2 (in progress): media library cache landed (atomic evidence.json /
-  summary.json, per-video reuse with refresh, list_library index); gallery-dl
-  image sets and cookie/proxy hardening remain.
+  summary.json, per-video reuse with refresh, list_library index) plus the
+  optional gallery-dl image-set adapter (Xiaohongshu/Instagram/Pinterest/Weibo,
+  Stale->fallback chain f2 > gallery-dl > yt-dlp); cookie/proxy hardening remains.
 - M3: richer local models (speaker diarization, denser scene detection).
 
 ## Install (uv recommended; needs Python 3.11+)
@@ -47,6 +48,13 @@ uses yt-dlp, so it is safe to omit:
 
     pip install f2            # or: pipx install f2
     # override the binary name/path with MEDIAVAULT_F2_BIN if needed
+
+Optional gallery-dl CLI for image-set posts (Xiaohongshu, Instagram,
+Pinterest, Weibo). It sits between f2 and yt-dlp; if absent the registry
+falls through, so it is safe to omit:
+
+    pip install gallery-dl    # or: pipx install gallery-dl
+    # override with MEDIAVAULT_GALLERYDL_BIN; honors proxy/cookies settings
 
 ## Run as an MCP server
 
@@ -239,6 +247,7 @@ and Python 3.11/3.12 (see .github/workflows/ci.yml); build a wheel with
         base.py              Adapter protocol, AdapterError/AdapterStale
         registry.py          scored fallback chains
         f2_adapter.py        optional f2 CLI, CN platforms (Stale->yt-dlp fallback)
+        gallerydl_adapter.py optional gallery-dl image sets (Stale->yt-dlp fallback)
         ytdlp_adapter.py     generic 1800+ site backend
       models.py              platform-neutral Resource/MediaItem
       jobs.py                thread-owned async job table
@@ -249,7 +258,7 @@ and Python 3.11/3.12 (see .github/workflows/ci.yml); build a wheel with
       llm.py                 OpenAI-compatible chat client
       summarize.py           key-free evidence collection + optional fusion
       config.py              env / .env configuration
-    tests/                   199 offline tests incl. stdio, ffmpeg, f2 and cache
+    tests/                   212 offline tests incl. stdio, ffmpeg, f2, gallery-dl and cache
     SKILL.md                 thin Agent Skill wrapper for chat agents
 
 ## Legal

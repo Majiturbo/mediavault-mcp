@@ -12,6 +12,7 @@ import logging
 
 from mediavault.adapters.base import Adapter, AdapterError, AdapterStale
 from mediavault.adapters.f2_adapter import F2Adapter
+from mediavault.adapters.gallerydl_adapter import GalleryDLAdapter
 from mediavault.adapters.ytdlp_adapter import YtDlpAdapter
 from mediavault.config import Config
 from mediavault.models import Resource
@@ -66,6 +67,12 @@ def build_default_registry(config: Config) -> AdapterRegistry:
             name="f2",
             platforms=F2Adapter.platforms,
             capabilities=F2Adapter.capabilities,
+        ),
+        GalleryDLAdapter(
+            config=config,
+            name="gallery-dl",
+            platforms=GalleryDLAdapter.platforms,
+            capabilities=GalleryDLAdapter.capabilities,
         ),
         YtDlpAdapter(
             config=config,
