@@ -270,6 +270,7 @@ and Python 3.11/3.12 (see .github/workflows/ci.yml); build a wheel with
       models.py              platform-neutral Resource/MediaItem
       jobs.py                thread-owned async job table
       library.py             atomic evidence/summary cache and library index
+      network.py             central proxy/cookie validation and backend option builders
       media.py               ffmpeg/ffprobe wrappers (audio, keyframes)
       asr.py                 hosted OpenAI-shape and local faster-whisper ASR
       vision.py              keyframe VLM analysis
@@ -278,6 +279,13 @@ and Python 3.11/3.12 (see .github/workflows/ci.yml); build a wheel with
       config.py              env / .env configuration
     tests/                   228 offline tests incl. stdio, ffmpeg, f2, gallery-dl, cache and network policy
     SKILL.md                 thin Agent Skill wrapper for chat agents
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the offline dev setup, the 100%
+coverage policy, adapter contract, and honesty rules. Release history is in
+[CHANGELOG.md](CHANGELOG.md); vulnerability reporting is described in
+[SECURITY.md](SECURITY.md).
 
 ## Legal
 

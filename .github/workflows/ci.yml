@@ -41,4 +41,7 @@ jobs:
         run: .venv/bin/ruff check src tests
 
       - name: Run test suite (offline)
-        run: .venv/bin/python -m pytest -q
+        run: .venv/bin/python -m pytest -q --cov-fail-under=100
+
+      - name: Build wheel and sdist
+        run: uv build

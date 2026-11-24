@@ -5,7 +5,20 @@ description = "Local stdio MCP server: paste a link, get native no-watermark med
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "mediavault" }]
+authors = [{ name = "mediavault contributors" }]
+keywords = ["mcp", "media", "video", "no-watermark", "yt-dlp", "f2", "summarization", "asr"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Typing :: Typed",
+]
 dependencies = [
     "mcp>=1.2.0,<2",
     "yt-dlp>=2024.10.0",
@@ -33,6 +46,13 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [project.scripts]
 mediavault = "mediavault.__main__:main"
+
+# After creating the GitHub repository, uncomment and set the real URLs:
+# [project.urls]
+# Homepage = "https://github.com/<owner>/mediavault-mcp"
+# Repository = "https://github.com/<owner>/mediavault-mcp"
+# Issues = "https://github.com/<owner>/mediavault-mcp/issues"
+# Changelog = "https://github.com/<owner>/mediavault-mcp/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
