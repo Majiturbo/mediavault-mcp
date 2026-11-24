@@ -291,6 +291,29 @@ def test_analyze_needs_no_key_and_collects_evidence(tmp_path, monkeypatch):
     assert evidence_video == "/tmp/vault/douyin/x.mp4"
 
 
+def test_analyze_reports_single_url_envelope(tmp_path, monkeypatch):
+    svc, _ = _keyless_service(tmp_path, monkeypatch)
+    payload = run(svc.analyze("https://v.douyin.com/x/"))
+    assert payload["analyzed_url"] == "https://v.douyin.com/x/"
+    assert payload["urls_detected"] == 1
+    assert payload["additional_urls"] == []
+
+
+def test_analyze_multi_url_processes_first_and_lists_rest(tmp_path, monkeypatch):
+    svc, registry = _keyless_service(tmp_path, monkeypatch)
+    text = "看看 https://v.douyin.com/a/ 和 https://x.com/b/status/1 还有 https://b23.tv/c"
+    payload = run(svc.analyze(text))
+
+    # Only the first link is probed/downloaded; the rest are surfaced, not dropped.
+    assert registry.probe_calls == ["https://v.douyin.com/a/"]
+    assert registry.adapter.download_calls == [("douyin:1", "speed")]
+    assert payload["urls_detected"] == 3
+    assert payload["additional_urls"] == [
+        "https://x.com/b/status/1",
+        "https://b23.tv/c",
+    ]
+
+
 def test_analyze_with_media_false_skips_download(tmp_path, monkeypatch):
     svc, registry = _keyless_service(tmp_path, monkeypatch)
     run(svc.analyze("https://v.douyin.com/x/", with_media=False))

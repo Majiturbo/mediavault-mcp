@@ -46,7 +46,11 @@ requests to re-upload/redistribute downloaded content.
      carry ok | off | not-configured | extracted | skipped-* | empty | error.
      Never claim audio/visual analysis the markers do not show, and when
      keyframes are "extracted" the evidence is in the image blocks, not text.
-4. Multiple links in one message are handled in a single call.
+4. Multiple links: parse_url and download handle every URL in one call.
+   analyze is single-resource because its image blocks belong to one clip -
+   call it once per link. Its payload reports urls_detected and
+   additional_urls, so if additional_urls is non-empty, call analyze again
+   for each remaining link rather than assuming they were covered.
 
 ## Honesty rules
 

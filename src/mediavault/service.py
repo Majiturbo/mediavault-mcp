@@ -99,15 +99,22 @@ class MediaVaultService:
         urls = parse_input(text)
         if not urls:
             raise AdapterError("no http(s) URL found in the input")
-        resource = await self.registry.probe(urls[0])
+        primary, rest = urls[0], urls[1:]
+        resource = await self.registry.probe(primary)
 
         video_path: str | None = None
         media_note: str | None = None
         if with_media:
-            video_path, media_note = await self._acquire_video(resource, urls[0])
+            video_path, media_note = await self._acquire_video(resource, primary)
 
         bundle = await self._summarizer.collect_evidence(resource, video_path)
         payload = bundle.to_dict()
+        # analyze is single-resource (its image blocks belong to one clip);
+        # make any extra links explicit so the agent calls again instead of
+        # assuming they were processed.
+        payload["analyzed_url"] = primary.raw_url
+        payload["urls_detected"] = len(urls)
+        payload["additional_urls"] = [u.raw_url for u in rest]
         if media_note:
             payload["pipeline"]["errors"].append(media_note)
             pipeline = payload["pipeline"]
