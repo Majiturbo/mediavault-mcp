@@ -20,6 +20,7 @@ DEFAULT_WHISPER_MODEL = "base"
 DEFAULT_WHISPER_DEVICE = "cpu"  # cpu | mps (Apple Silicon) | cuda
 DEFAULT_KEYFRAME_MAX = 8
 DEFAULT_KEYFRAME_WIDTH = 768
+DEFAULT_F2_BIN = "f2"  # optional f2 CLI; absence triggers yt-dlp fallback
 
 
 def _load_dotenv(path: Path) -> dict[str, str]:
@@ -84,6 +85,8 @@ class Config:
     whisper_device: str
     keyframe_max: int
     keyframe_width: int
+    # Optional external f2 CLI used by the CN-platform adapter.
+    f2_bin: str
 
     @classmethod
     def load(cls, environ: dict[str, str] | None = None) -> Config:
@@ -131,6 +134,10 @@ class Config:
             keyframe_max=_resolve_int(env, dotenv, "MEDIAVAULT_KEYFRAME_MAX", DEFAULT_KEYFRAME_MAX),
             keyframe_width=_resolve_int(
                 env, dotenv, "MEDIAVAULT_KEYFRAME_WIDTH", DEFAULT_KEYFRAME_WIDTH
+            ),
+            f2_bin=(
+                _resolve(env, dotenv, "MEDIAVAULT_F2_BIN", DEFAULT_F2_BIN)
+                or DEFAULT_F2_BIN
             ),
         )
 

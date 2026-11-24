@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 
 from mediavault.adapters.base import Adapter, AdapterError, AdapterStale
+from mediavault.adapters.f2_adapter import F2Adapter
 from mediavault.adapters.ytdlp_adapter import YtDlpAdapter
 from mediavault.config import Config
 from mediavault.models import Resource
@@ -54,15 +55,22 @@ class AdapterRegistry:
 
 
 def build_default_registry(config: Config) -> AdapterRegistry:
-    # M0: yt-dlp is the generic workhorse (1800+ sites incl. x/tiktok/ig/youtube).
-    # M1 adds f2 and self-built SSR adapters in front of it for CN platforms.
-    # Class attributes are read from the subclass explicitly: the dataclass
+    # f2 ranks first for the CN platforms it tracks (match_score 200); when
+    # its binary is absent or a page shape drifts it raises AdapterStale and the
+    # registry transparently falls through to yt-dlp, the generic 1800+ site
+    # workhorse. Class attributes are passed explicitly because the dataclass
     # __init__ would otherwise shadow them with the base field defaults.
     return AdapterRegistry([
+        F2Adapter(
+            config=config,
+            name="f2",
+            platforms=F2Adapter.platforms,
+            capabilities=F2Adapter.capabilities,
+        ),
         YtDlpAdapter(
             config=config,
             name="yt-dlp",
             platforms=YtDlpAdapter.platforms,
             capabilities=YtDlpAdapter.capabilities,
-        )
+        ),
     ])

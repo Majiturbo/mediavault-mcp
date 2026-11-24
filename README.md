@@ -17,8 +17,9 @@ their own OpenAI-compatible endpoint.
   analysis: on-device transcript plus keyframe image blocks for the calling
   agent, with optional server-side fusion through an OpenAI-compatible
   endpoint.
-- M1: f2 adapter + self-built SSR adapters (Douyin, Xiaohongshu, Kuaishou)
-  in front of yt-dlp, with stale-adapter fallback.
+- M1 (in progress): optional f2 CLI adapter now ranks ahead of yt-dlp for
+  Douyin/Xiaohongshu/Kuaishou/TikTok/Weibo/Bilibili and transparently falls back
+  when the binary is absent or a page shape drifts; self-built SSR adapters next.
 - M2: gallery-dl image sets, cookie/proxy hardening, media library cache.
 - M3: richer local models (speaker diarization, denser scene detection).
 
@@ -37,6 +38,13 @@ your distro's ffmpeg package.
 For fully offline, local speech-to-text instead of the hosted ASR endpoint:
 
     uv pip install -e ".[local-asr]"   # adds faster-whisper
+
+Optional f2 CLI for first-class CN-platform extraction (Douyin, Xiaohongshu,
+Kuaishou, TikTok, Weibo, Bilibili). If f2 is not on PATH the registry simply
+uses yt-dlp, so it is safe to omit:
+
+    pip install f2            # or: pipx install f2
+    # override the binary name/path with MEDIAVAULT_F2_BIN if needed
 
 ## Run as an MCP server
 
@@ -217,6 +225,7 @@ and Python 3.11/3.12 (see .github/workflows/ci.yml); build a wheel with
       adapters/
         base.py              Adapter protocol, AdapterError/AdapterStale
         registry.py          scored fallback chains
+        f2_adapter.py        optional f2 CLI, CN platforms (Stale->yt-dlp fallback)
         ytdlp_adapter.py     generic 1800+ site backend
       models.py              platform-neutral Resource/MediaItem
       jobs.py                thread-owned async job table
@@ -226,7 +235,7 @@ and Python 3.11/3.12 (see .github/workflows/ci.yml); build a wheel with
       llm.py                 OpenAI-compatible chat client
       summarize.py           key-free evidence collection + optional fusion
       config.py              env / .env configuration
-    tests/                   164 offline tests incl. stdio and ffmpeg E2E
+    tests/                   183 offline tests incl. stdio, ffmpeg and f2 fallback
     SKILL.md                 thin Agent Skill wrapper for chat agents
 
 ## Legal
