@@ -457,3 +457,31 @@ def test_detailed_empty_grab_falls_back_to_interval(monkeypatch, tmp_path):
         "clip.mp4", tmp_path / "f", max_frames=4, width=320, mode="hybrid"
     ))
     assert result.scene_cuts == 2 and len(result.frames) == 1
+
+def test_detailed_grab_error_falls_back_to_interval(monkeypatch, tmp_path):
+    # Deterministically force the timestamp-grab pass to raise; the guarded
+    # except must swallow it and fall back to interval extraction on every OS.
+    async def fake_probe(path):
+        return media.MediaProbe(duration_ms=10000, has_audio=True, has_video=True)
+
+    async def fake_cuts(path, *, threshold):
+        return [2.0, 6.0]
+
+    async def boom_grab(video, out_dir, timestamps, *, width):
+        raise media.MediaToolError("select filter unsupported")
+
+    async def fake_run(cmd):
+        out_dir = Path(cmd[-1]).parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "frame_001.jpg").write_bytes(b"jpeg")
+        return ""
+
+    monkeypatch.setattr(media, "probe_media", fake_probe)
+    monkeypatch.setattr(media, "detect_scene_cuts", fake_cuts)
+    monkeypatch.setattr(media, "_extract_at_timestamps", boom_grab)
+    monkeypatch.setattr(media, "_run", fake_run)
+    result = run(media.extract_keyframes_detailed(
+        "clip.mp4", tmp_path / "f", max_frames=4, width=320, mode="hybrid"
+    ))
+    # real cut count retained, interval frame produced via fallback
+    assert result.scene_cuts == 2 and len(result.frames) == 1
