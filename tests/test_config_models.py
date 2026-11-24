@@ -28,6 +28,11 @@ def test_config_defaults_with_clean_env(tmp_path: Path):
     assert cfg.keyframe_width == 768
     assert cfg.f2_bin == "f2"
     assert cfg.gallerydl_bin == "gallery-dl"
+    # M3 scene/diarization defaults
+    assert cfg.keyframe_mode == "interval"
+    assert cfg.scene_threshold == 0.4
+    assert cfg.diarization == "off"
+    assert cfg.diarize_gap_ms == 700
 
 
 def test_summarization_settings_from_env(tmp_path: Path):
@@ -50,6 +55,34 @@ def test_summarization_settings_from_env(tmp_path: Path):
     assert cfg.keyframe_width == 1024
     assert cfg.f2_bin == "/opt/homebrew/bin/f2"
     assert cfg.gallerydl_bin == "/opt/homebrew/bin/gallery-dl"
+
+
+def test_m3_scene_and_diarization_settings(tmp_path: Path):
+    cfg = Config.load({
+        "MEDIAVAULT_HOME": str(tmp_path / "vault"),
+        "MEDIAVAULT_KEYFRAME_MODE": "HYBRID",
+        "MEDIAVAULT_SCENE_THRESHOLD": "0.55",
+        "MEDIAVAULT_DIARIZATION": "HEURISTIC",
+        "MEDIAVAULT_DIARIZE_GAP_MS": "1200",
+    })
+    assert cfg.keyframe_mode == "hybrid"  # lowercased, valid choice
+    assert cfg.scene_threshold == 0.55
+    assert cfg.diarization == "heuristic"
+    assert cfg.diarize_gap_ms == 1200
+
+
+def test_m3_invalid_choices_and_numbers_fall_back(tmp_path: Path):
+    cfg = Config.load({
+        "MEDIAVAULT_HOME": str(tmp_path / "vault"),
+        "MEDIAVAULT_KEYFRAME_MODE": "teleport",   # not allowed -> default
+        "MEDIAVAULT_DIARIZATION": "voiceprint",  # not allowed -> default
+        "MEDIAVAULT_SCENE_THRESHOLD": "x",       # bad float -> default
+        "MEDIAVAULT_DIARIZE_GAP_MS": "y",        # bad int -> default
+    })
+    assert cfg.keyframe_mode == "interval"
+    assert cfg.diarization == "off"
+    assert cfg.scene_threshold == 0.4
+    assert cfg.diarize_gap_ms == 700
 
 
 def test_invalid_int_settings_fall_back_to_defaults(tmp_path: Path):

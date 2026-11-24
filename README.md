@@ -129,10 +129,14 @@ call keeps working.
 **1. `analyze` — agent-native, no key (recommended).** Deterministic evidence:
 title/author/caption, a timestamped transcript (local faster-whisper or your ASR
 endpoint), and up to `MEDIAVAULT_KEYFRAME_MAX` downscaled JPEG keyframes
-returned as MCP image blocks. Every stage reports itself honestly in `pipeline`
-(`ok` / `off` / `not-configured` / `extracted` / `skipped-*` / `empty` /
-`error`); one failed stage never kills the run. Your agent reads the transcript
-and looks at the frames with its own model.
+returned as MCP image blocks. Keyframes can stay evenly spread (`interval`, the
+default) or track real edits via ffmpeg scene-cut detection (`hybrid` /
+`scene`), always within the same frame budget; an optional, dependency-free
+heuristic labels transcript segments with `SPEAKER_A` / `SPEAKER_B` turn tags.
+Every stage reports itself honestly in `pipeline` (`ok` / `off` /
+`not-configured` / `extracted` / `skipped-*` / `empty` / `error`); one failed
+stage never kills the run. Your agent reads the transcript and looks at the
+frames with its own model.
 
 **2. `summarize` — optional server-side fusion.** Runs the same evidence
 collection, then makes one OpenAI-compatible chat call that fuses caption,
@@ -169,6 +173,8 @@ All settings come from environment variables or `.env` (see
 | `MEDIAVAULT_ASR_BACKEND` | `openai` | `openai` (hosted) / `local` (faster-whisper) / `off` |
 | `MEDIAVAULT_WHISPER_MODEL` / `_DEVICE` | `base` / `cpu` | Local ASR size and device (cpu/mps/cuda) |
 | `MEDIAVAULT_KEYFRAME_MAX` / `_WIDTH` | `8` / `768` | Frame budget and downscale width |
+| `MEDIAVAULT_KEYFRAME_MODE` / `_SCENE_THRESHOLD` | `interval` / `0.4` | `interval` / `hybrid` / `scene` selection and ffmpeg cut score |
+| `MEDIAVAULT_DIARIZATION` / `_DIARIZE_GAP_MS` | `off` / `700` | `heuristic` A/B turn labels from pauses, and the pause that starts a turn |
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` | OpenAI / — | Only needed for `summarize`, hosted ASR and server VLM |
 
 Downloads land in `~/MediaVault/<platform>/<canonical_id>/` alongside
@@ -181,11 +187,12 @@ Downloads land in `~/MediaVault/<platform>/<canonical_id>/` alongside
 2. **Degrade honestly, per stage.** Every adapter failure, skipped media stage and ignored cookie file is surfaced as a marker or note — never hidden.
 3. **No-watermark means source-native, not "removed".** We never crop or blur; unverifiable streams stay `unknown`.
 4. **Credentials stay local.** No third-party parser keys, no telemetry, no credentials in URLs, logs or caches.
-5. **Test the seams, mock the world.** 228 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests run when ffmpeg is present and skip themselves otherwise.
+5. **Test the seams, mock the world.** 261 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests (including scene detection) run when ffmpeg is present and skip themselves otherwise.
 
 ## 🗺️ Roadmap
 
-- **Next:** self-built SSR adapters for CN platforms (calibrated against live page shapes), richer local models — speaker diarization and denser scene detection.
+- **Shipped:** ffmpeg scene-cut-aware keyframes (`hybrid` / `scene`) and dependency-free speaker turn labeling, both key-free and fully offline.
+- **Next:** self-built SSR adapters for CN platforms (calibrated against live page shapes), then embedding-based voiceprint diarization behind the same `Diarizer` interface.
 - **Always:** keeping the adapter chain and evidence schema stable while platforms drift.
 
 ## 🧪 Development

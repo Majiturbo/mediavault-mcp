@@ -53,6 +53,12 @@ requests to re-upload/redistribute downloaded content.
      carry ok | off | not-configured | extracted | skipped-* | empty | error.
      Never claim audio/visual analysis the markers do not show, and when
      keyframes are "extracted" the evidence is in the image blocks, not text.
+    - M3 evidence fields: pipeline.keyframe_mode (interval|hybrid|scene) and
+      pipeline.scene_cuts report scene-aware extraction; pipeline.diarization
+      is off | skipped-no-transcript | pause-gap-heuristic | error. When
+      diarization ran, each transcript_segment carries a speaker label and the
+      payload includes speaker_turns. These SPEAKER_A/SPEAKER_B tags are
+      pause-based turns, not identified people - never name a real speaker.
 4. Multiple links: parse_url and download handle every URL in one call.
    analyze is single-resource because its image blocks belong to one clip -
    call it once per link. Its payload reports urls_detected and
@@ -83,8 +89,13 @@ OPENAI_BASE_URL / OPENAI_API_KEY (a placeholder works with local Ollama/LM
 Studio) plus MEDIAVAULT_LLM_MODEL and MEDIAVAULT_VLM_MODEL. The pipeline is
 tuned by MEDIAVAULT_ASR_BACKEND (openai|local|off), MEDIAVAULT_ASR_MODEL,
 MEDIAVAULT_WHISPER_MODEL, MEDIAVAULT_WHISPER_DEVICE (cpu|mps|cuda),
-MEDIAVAULT_KEYFRAME_MAX and MEDIAVAULT_KEYFRAME_WIDTH. ffmpeg must be on PATH
-for audio/frame extraction; on-device ASR additionally needs
+MEDIAVAULT_KEYFRAME_MAX and MEDIAVAULT_KEYFRAME_WIDTH. Scene-aware frames use
+MEDIAVAULT_KEYFRAME_MODE (interval|hybrid|scene, default interval) and
+MEDIAVAULT_SCENE_THRESHOLD (0..1). Speaker turn labeling uses
+MEDIAVAULT_DIARIZATION (off|heuristic) with MEDIAVAULT_DIARIZE_GAP_MS; the
+heuristic is key-free and emits SPEAKER_A/SPEAKER_B turn tags (not identified
+people), surfaced as speaker_turns and per-segment speaker fields. ffmpeg must
+be on PATH for audio/frame/scene extraction; on-device ASR additionally needs
 uv pip install -e ".[local-asr]". The optional f2 and gallery-dl CLIs are
 auto-detected on PATH (override with MEDIAVAULT_F2_BIN /
 MEDIAVAULT_GALLERYDL_BIN); neither is required, and both honor the proxy /

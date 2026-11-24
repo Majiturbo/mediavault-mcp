@@ -20,6 +20,10 @@ DEFAULT_WHISPER_MODEL = "base"
 DEFAULT_WHISPER_DEVICE = "cpu"  # cpu | mps (Apple Silicon) | cuda
 DEFAULT_KEYFRAME_MAX = 8
 DEFAULT_KEYFRAME_WIDTH = 768
+DEFAULT_KEYFRAME_MODE = "interval"  # interval | hybrid | scene
+DEFAULT_SCENE_THRESHOLD = 0.4  # ffmpeg scene-cut score, 0..1
+DEFAULT_DIARIZATION = "off"  # off | heuristic
+DEFAULT_DIARIZE_GAP_MS = 700  # pause length that starts a new speaker turn
 DEFAULT_F2_BIN = "f2"  # optional f2 CLI; absence triggers yt-dlp fallback
 DEFAULT_GALLERYDL_BIN = "gallery-dl"  # optional image-set CLI; absence -> fallback
 
@@ -68,6 +72,32 @@ def _resolve_int(
         return default
 
 
+def _resolve_float(
+    env: dict[str, str],
+    dotenv: dict[str, str],
+    key: str,
+    default: float,
+) -> float:
+    raw = _resolve(env, dotenv, key)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _resolve_choice(
+    env: dict[str, str],
+    dotenv: dict[str, str],
+    key: str,
+    allowed: set[str],
+    default: str,
+) -> str:
+    raw = (_resolve(env, dotenv, key, default) or default).lower()
+    return raw if raw in allowed else default
+
+
 @dataclass(frozen=True)
 class Config:
     home: Path
@@ -86,6 +116,11 @@ class Config:
     whisper_device: str
     keyframe_max: int
     keyframe_width: int
+    # Denser scene-aware keyframe extraction and speaker diarization (M3).
+    keyframe_mode: str  # interval | hybrid | scene
+    scene_threshold: float
+    diarization: str  # off | heuristic
+    diarize_gap_ms: int
     # Optional external f2 CLI used by the CN-platform adapter.
     f2_bin: str
     # Optional external gallery-dl CLI for image sets.
@@ -137,6 +172,20 @@ class Config:
             keyframe_max=_resolve_int(env, dotenv, "MEDIAVAULT_KEYFRAME_MAX", DEFAULT_KEYFRAME_MAX),
             keyframe_width=_resolve_int(
                 env, dotenv, "MEDIAVAULT_KEYFRAME_WIDTH", DEFAULT_KEYFRAME_WIDTH
+            ),
+            keyframe_mode=_resolve_choice(
+                env, dotenv, "MEDIAVAULT_KEYFRAME_MODE",
+                {"interval", "hybrid", "scene"}, DEFAULT_KEYFRAME_MODE,
+            ),
+            scene_threshold=_resolve_float(
+                env, dotenv, "MEDIAVAULT_SCENE_THRESHOLD", DEFAULT_SCENE_THRESHOLD
+            ),
+            diarization=_resolve_choice(
+                env, dotenv, "MEDIAVAULT_DIARIZATION",
+                {"off", "heuristic"}, DEFAULT_DIARIZATION,
+            ),
+            diarize_gap_ms=_resolve_int(
+                env, dotenv, "MEDIAVAULT_DIARIZE_GAP_MS", DEFAULT_DIARIZE_GAP_MS
             ),
             f2_bin=(
                 _resolve(env, dotenv, "MEDIAVAULT_F2_BIN", DEFAULT_F2_BIN)

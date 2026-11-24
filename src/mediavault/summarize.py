@@ -31,6 +31,7 @@ from pathlib import Path
 
 from mediavault import media
 from mediavault.asr import ASRBackend, ASRError, Transcription
+from mediavault.diarize import DiarizationError, DiarizationTurn, Diarizer
 from mediavault.llm import ChatMessage, LLMError, OpenAICompatibleClient
 from mediavault.models import Resource
 from mediavault.vision import VisionAnalyzer, VisualFact
@@ -68,6 +69,10 @@ class PipelineStatus:
     transcript: str = "off"
     keyframes: str = "off"
     frames_extracted: int = 0
+    # M3: scene-aware extraction and speaker turn labels.
+    keyframe_mode: str = "interval"
+    scene_cuts: int = 0
+    diarization: str = "off"
     errors: list[str] = field(default_factory=list)
 
 
@@ -79,10 +84,13 @@ class EvidenceBundle:
     frame_paths: list[Path]
     visual_facts: list[VisualFact]
     status: PipelineStatus
+    speaker_turns: list[DiarizationTurn] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Key-free evidence payload for the host agent's own LLM."""
         transcription = self.transcription
+        raw_segments = transcription.segments if transcription else []
+        speaker_by_index = {i: t.speaker for i, t in enumerate(self.speaker_turns)}
         return {
             "canonical_id": self.resource.canonical_id,
             "platform": self.resource.platform,
@@ -92,10 +100,25 @@ class EvidenceBundle:
             "page_url": self.resource.page_url,
             "transcript": transcription.text if transcription else "",
             "transcript_segments": [
-                {"start_ms": s.start_ms, "end_ms": s.end_ms, "text": s.text}
-                for s in (transcription.segments if transcription else [])
+                {
+                    "start_ms": s.start_ms,
+                    "end_ms": s.end_ms,
+                    "text": s.text,
+                    **(
+                        {"speaker": speaker_by_index[i]}
+                        if i in speaker_by_index
+                        else {}
+                    ),
+                }
+                for i, s in enumerate(raw_segments)
+            ],
+            "speaker_turns": [
+                {"speaker": t.speaker, "start_ms": t.start_ms, "end_ms": t.end_ms}
+                for t in self.speaker_turns
             ],
             "frames_extracted": len(self.frame_paths),
+            "scene_cuts": self.status.scene_cuts,
+            "keyframe_mode": self.status.keyframe_mode,
             "frame_paths": [str(p) for p in self.frame_paths],
             "visual_facts": [
                 {"frame": f.frame, "index": f.index, "observation": f.observation}
@@ -106,6 +129,9 @@ class EvidenceBundle:
                 "transcript": self.status.transcript,
                 "keyframes": self.status.keyframes,
                 "frames_extracted": self.status.frames_extracted,
+                "keyframe_mode": self.status.keyframe_mode,
+                "scene_cuts": self.status.scene_cuts,
+                "diarization": self.status.diarization,
                 "errors": self.status.errors,
                 "canonical_id": self.resource.canonical_id,
             },
@@ -119,11 +145,13 @@ class Summarizer:
         asr_backend: ASRBackend | None = None,
         vision: VisionAnalyzer | None = None,
         config=None,
+        diarizer: Diarizer | None = None,
     ) -> None:
         self._llm = llm
         self._asr = asr_backend
         self._vision = vision
         self._config = config
+        self._diarizer = diarizer
 
     # ------------------------------------------------------------------ #
     # Stage 1: speech transcription
@@ -152,18 +180,60 @@ class Summarizer:
             return None
 
     # ------------------------------------------------------------------ #
+    # Stage 1b: optional speaker turn labels (dependency-free heuristic)
+    # ------------------------------------------------------------------ #
+    def _run_diarization(
+        self, transcription: Transcription | None, status: PipelineStatus
+    ) -> list[DiarizationTurn]:
+        if self._diarizer is None:
+            status.diarization = "off"
+            return []
+        if transcription is None or not transcription.segments:
+            status.diarization = "skipped-no-transcript"
+            return []
+        try:
+            turns = self._diarizer.diarize(transcription.segments)
+        except DiarizationError as exc:
+            status.diarization = "error"
+            status.errors.append(f"diarization: {type(exc).__name__}: {exc}"[:300])
+            return []
+        status.diarization = self._diarizer.name
+        return turns
+
+    # ------------------------------------------------------------------ #
     # Stage 2: local keyframe extraction (no key) + optional VLM describe
     # ------------------------------------------------------------------ #
     async def _extract_frames(
         self, video_path: Path, status: PipelineStatus
     ) -> list[Path]:
+        max_frames = getattr(self._config, "keyframe_max", 8) if self._config else 8
+        width = getattr(self._config, "keyframe_width", 768) if self._config else 768
+        mode = getattr(self._config, "keyframe_mode", "interval") if self._config else "interval"
+        threshold = (
+            getattr(self._config, "scene_threshold", media.DEFAULT_SCENE_THRESHOLD)
+            if self._config
+            else media.DEFAULT_SCENE_THRESHOLD
+        )
+        status.keyframe_mode = mode
         try:
-            frames = await media.extract_keyframes(
-                video_path,
-                video_path.parent / "keyframes",
-                max_frames=self._config.keyframe_max if self._config else 8,
-                width=self._config.keyframe_width if self._config else 768,
-            )
+            if mode in {"hybrid", "scene"}:
+                result = await media.extract_keyframes_detailed(
+                    video_path,
+                    video_path.parent / "keyframes",
+                    max_frames=max_frames,
+                    width=width,
+                    mode=mode,
+                    scene_threshold=threshold,
+                )
+                status.scene_cuts = result.scene_cuts
+                frames = result.frames
+            else:
+                frames = await media.extract_keyframes(
+                    video_path,
+                    video_path.parent / "keyframes",
+                    max_frames=max_frames,
+                    width=width,
+                )
             status.frames_extracted = len(frames)
             return frames
         except media.MediaToolError as exc:
@@ -205,9 +275,11 @@ class Summarizer:
         frames: list[Path] = []
 
         facts: list[VisualFact] = []
+        speaker_turns: list[DiarizationTurn] = []
         if video_path is not None:
             path = Path(video_path)
             transcription = await self._run_asr(path, status)
+            speaker_turns = self._run_diarization(transcription, status)
             frames = await self._extract_frames(path, status)
             facts = await self._describe_frames(frames, status)
 
@@ -219,6 +291,7 @@ class Summarizer:
             frame_paths=frames,
             visual_facts=facts,
             status=status,
+            speaker_turns=speaker_turns,
         )
 
     # ------------------------------------------------------------------ #
@@ -327,9 +400,16 @@ class Summarizer:
             "transcript": bundle.status.transcript,
             "keyframes": bundle.status.keyframes,
             "frames_extracted": bundle.status.frames_extracted,
+            "keyframe_mode": bundle.status.keyframe_mode,
+            "scene_cuts": bundle.status.scene_cuts,
+            "diarization": bundle.status.diarization,
             "errors": bundle.status.errors,
             "canonical_id": resource.canonical_id,
         }
+        structured["speaker_turns"] = [
+            {"speaker": t.speaker, "start_ms": t.start_ms, "end_ms": t.end_ms}
+            for t in bundle.speaker_turns
+        ]
         return structured
 
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from mediavault.adapters import AdapterError, build_default_registry
 from mediavault.asr import build_asr_backend
 from mediavault.config import Config
+from mediavault.diarize import build_diarizer
 from mediavault.jobs import JobManager
 from mediavault.library import MediaLibrary
 from mediavault.llm import LLMError, OpenAICompatibleClient
@@ -35,8 +36,11 @@ class MediaVaultService:
             OpenAICompatibleClient(self.config) if self.config.openai_api_key else None
         )
         asr_backend = build_asr_backend(self.config)
+        diarizer = build_diarizer(self.config)
         vision = VisionAnalyzer(llm, self.config) if llm is not None else None
-        self._summarizer = Summarizer(llm, asr_backend, vision, self.config)
+        self._summarizer = Summarizer(
+            llm, asr_backend, vision, self.config, diarizer=diarizer
+        )
 
     async def parse_text(self, text: str) -> list[dict]:
         urls = parse_input(text)

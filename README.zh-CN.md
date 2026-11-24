@@ -125,7 +125,10 @@ pipx install gallery-dl   # 图集帖子（小红书、Instagram、Pinterest、�
 **1. `analyze` —— 面向智能体、无需密钥（推荐）。** 确定性取证：
 标题 / 作者 / 文案、带时间戳的逐字稿（本地 faster-whisper 或你的 ASR 端点），
 以及最多 `MEDIAVAULT_KEYFRAME_MAX` 张降采样后的 JPEG 关键帧，以 MCP 图片块
-返回。每个阶段都在 `pipeline` 里诚实上报（`ok` / `off` / `not-configured` /
+返回。关键帧既可以保持均匀抽帧（默认 `interval`），也可以通过 ffmpeg 场景
+切换检测追踪真实剪辑点（`hybrid` / `scene`），且始终受同一帧预算约束；可选
+的零依赖启发式还会给逐字稿片段打上 `SPEAKER_A` / `SPEAKER_B` 话轮标签。每个
+阶段都在 `pipeline` 里诚实上报（`ok` / `off` / `not-configured` /
 `extracted` / `skipped-*` / `empty` / `error`）；单个阶段失败绝不会拖垮整个
 流程。智能体用自己的模型读逐字稿、看关键帧即可。
 
@@ -163,6 +166,8 @@ MEDIAVAULT_WHISPER_DEVICE=mps                # CI/Linux 用 cpu · Apple 芯片�
 | `MEDIAVAULT_ASR_BACKEND` | `openai` | `openai`（托管）/ `local`（faster-whisper）/ `off` |
 | `MEDIAVAULT_WHISPER_MODEL` / `_DEVICE` | `base` / `cpu` | 本地转写模型尺寸与设备（cpu/mps/cuda） |
 | `MEDIAVAULT_KEYFRAME_MAX` / `_WIDTH` | `8` / `768` | 关键帧数量上限与降采样宽度 |
+| `MEDIAVAULT_KEYFRAME_MODE` / `_SCENE_THRESHOLD` | `interval` / `0.4` | `interval` / `hybrid` / `scene` 抽帧策略与 ffmpeg 切场分值 |
+| `MEDIAVAULT_DIARIZATION` / `_DIARIZE_GAP_MS` | `off` / `700` | `heuristic` 按停顿打 A/B 话轮标签，以及开启新话轮的停顿时长 |
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` | OpenAI / — | 仅 `summarize`、托管 ASR 和服务端 VLM 需要 |
 
 下载文件落在 `~/MediaVault/<platform>/<canonical_id>/`，与 `resource.json`、
@@ -175,11 +180,12 @@ MEDIAVAULT_WHISPER_DEVICE=mps                # CI/Linux 用 cpu · Apple 芯片�
 2. **逐阶段诚实降级。** 每次适配器失败、每个被跳过的媒体阶段、每个被忽略的 Cookie 文件，都会以标记或备注呈现，绝不隐藏。
 3. **无水印指的是源头原生，而非“已移除”。** 我们从不裁剪或涂抹；无法核实的流保持 `unknown`。
 4. **凭证不出本机。** 不内置第三方解析 Key、无遥测，凭证不进 URL、日志或缓存。
-5. **测接缝、模拟外部世界。** 228 个离线测试做到语句与分支 100% 覆盖；真实 ffmpeg 冒烟测试在 ffmpeg 存在时运行，否则自动跳过。
+5. **测接缝、模拟外部世界。** 261 个离线测试做到语句与分支 100% 覆盖；真实 ffmpeg 冒烟测试（含场景检测）在 ffmpeg 存在时运行，否则自动跳过。
 
 ## 🗺️ 路线图
 
-- **下一步：** 面向国内平台的自建 SSR 适配器（对照真实页面结构校准），以及更强的本地模型——说话人分离与更密集的场景检测。
+- **已交付：** 基于 ffmpeg 场景切换的关键帧（`hybrid` / `scene`）与零依赖说话人话轮标注，均无需密钥、完全离线。
+- **下一步：** 面向国内平台的自建 SSR 适配器（对照真实页面结构校准），随后在同一个 `Diarizer` 接口后接入基于声纹嵌入的真实说话人分离。
 - **长期：** 在平台不断改版的同时，保持适配器链与证据结构稳定。
 
 ## 🧪 开发

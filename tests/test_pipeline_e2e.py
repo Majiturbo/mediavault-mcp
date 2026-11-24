@@ -147,6 +147,9 @@ def test_full_service_pipeline_with_real_ffmpeg(tmp_path, monkeypatch):
         "transcript": "ok",
         "keyframes": "ok",
         "frames_extracted": 3,
+        "keyframe_mode": "interval",
+        "scene_cuts": 0,
+        "diarization": "off",
         "errors": [],
         "canonical_id": "douyin:e2e1",
     }

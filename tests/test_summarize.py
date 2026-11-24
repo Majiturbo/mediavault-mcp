@@ -7,6 +7,7 @@ import pytest
 
 from mediavault import media
 from mediavault.asr import ASRError, Transcription, TranscriptSegment
+from mediavault.diarize import DiarizationError, PauseGapDiarizer
 from mediavault.llm import LLMError
 from mediavault.models import Author, Resource
 from mediavault.summarize import Summarizer, _format_ms
@@ -131,6 +132,9 @@ def test_caption_only_pipeline_markers():
         "transcript": "off",
         "keyframes": "off",
         "frames_extracted": 0,
+        "keyframe_mode": "interval",
+        "scene_cuts": 0,
+        "diarization": "off",
         "errors": [],
         "canonical_id": "douyin:1",
     }
@@ -415,3 +419,118 @@ def test_extraction_error_marker_survives_without_vision(monkeypatch, tmp_path):
     result = run(summarizer.summarize(resource(), video_path=tmp_path / "clip.mp4"))
     assert result["pipeline"]["keyframes"] == "error"
     assert any("keyframes: MediaToolError" in e for e in result["pipeline"]["errors"])
+
+
+# --------------------------------------------------------------------------- #
+# M3: speaker diarization and scene-aware frames through the pipeline
+# --------------------------------------------------------------------------- #
+def _gapped_transcription():
+    return Transcription(
+        text="你好 我来说",
+        language="zh",
+        segments=[
+            TranscriptSegment(0, 500, "你好"),
+            TranscriptSegment(2000, 2500, "我来说"),  # 1500ms gap -> new turn
+        ],
+    )
+
+
+def test_diarization_attaches_speaker_labels_to_evidence(monkeypatch, tmp_path):
+    patch_media(monkeypatch)
+    summarizer = Summarizer(
+        FakeLLM("{}"), FakeASR(_gapped_transcription()), None, FakeConfig(),
+        diarizer=PauseGapDiarizer(700),
+    )
+    bundle = run(summarizer.collect_evidence(resource(), video_path=tmp_path / "c.mp4"))
+    payload = bundle.to_dict()
+    assert [t["speaker"] for t in payload["speaker_turns"]] == [
+        "SPEAKER_A", "SPEAKER_B",
+    ]
+    # speaker is folded into each transcript segment in the evidence payload
+    assert payload["transcript_segments"][0]["speaker"] == "SPEAKER_A"
+    assert payload["transcript_segments"][1]["speaker"] == "SPEAKER_B"
+    assert payload["pipeline"]["diarization"] == "pause-gap-heuristic"
+
+
+def test_diarization_off_by_default_has_no_speaker_key(monkeypatch, tmp_path):
+    patch_media(monkeypatch)
+    summarizer = Summarizer(FakeLLM("{}"), FakeASR(), None, FakeConfig())
+    bundle = run(summarizer.collect_evidence(resource(), video_path=tmp_path / "c.mp4"))
+    payload = bundle.to_dict()
+    assert payload["speaker_turns"] == []
+    assert payload["pipeline"]["diarization"] == "off"
+    assert all("speaker" not in seg for seg in payload["transcript_segments"])
+
+
+def test_diarization_skipped_without_transcript(monkeypatch, tmp_path):
+    patch_media(monkeypatch)
+    empty = Transcription(text="", language=None, segments=[])
+    summarizer = Summarizer(
+        FakeLLM("{}"), FakeASR(empty), None, FakeConfig(),
+        diarizer=PauseGapDiarizer(700),
+    )
+    bundle = run(summarizer.collect_evidence(resource(), video_path=tmp_path / "c.mp4"))
+    assert bundle.status.diarization == "skipped-no-transcript"
+    assert bundle.speaker_turns == []
+
+
+class _BoomDiarizer:
+    name = "stub"
+
+    def diarize(self, segments):
+        raise DiarizationError("model exploded")
+
+
+def test_diarization_error_is_recorded_not_raised(monkeypatch, tmp_path):
+    patch_media(monkeypatch)
+    summarizer = Summarizer(
+        FakeLLM("{}"), FakeASR(), None, FakeConfig(), diarizer=_BoomDiarizer(),
+    )
+    bundle = run(summarizer.collect_evidence(resource(), video_path=tmp_path / "c.mp4"))
+    assert bundle.status.diarization == "error"
+    assert bundle.speaker_turns == []
+    assert any("diarization: DiarizationError" in e for e in bundle.status.errors)
+
+
+def test_summarize_surface_includes_speaker_turns(monkeypatch, tmp_path):
+    patch_media(monkeypatch)
+    summarizer = Summarizer(
+        FakeLLM('{"tldr": "要点", "language": "zh"}'),
+        FakeASR(_gapped_transcription()), None, FakeConfig(),
+        diarizer=PauseGapDiarizer(700),
+    )
+    result = run(summarizer.summarize(resource(), video_path=tmp_path / "c.mp4"))
+    assert [t["speaker"] for t in result["speaker_turns"]] == ["SPEAKER_A", "SPEAKER_B"]
+    assert result["pipeline"]["diarization"] == "pause-gap-heuristic"
+
+
+class _HybridConfig:
+    keyframe_max = 6
+    keyframe_width = 480
+    keyframe_mode = "hybrid"
+    scene_threshold = 0.5
+
+
+def test_hybrid_keyframe_mode_uses_detailed_and_reports_cuts(monkeypatch, tmp_path):
+    patch_media(monkeypatch)
+    captured = {}
+
+    async def fake_detailed(video, out_dir, *, max_frames, width, mode, scene_threshold):
+    # capture kwargs then emulate outputs
+        captured.update(mode=mode, threshold=scene_threshold, max_frames=max_frames)
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        made = [out_dir / "frame_001.jpg", out_dir / "frame_002.jpg"]
+        for p in made:
+            p.write_bytes(b"jpeg")
+        return media.KeyframeResult(made, 4)
+
+    monkeypatch.setattr(media, "extract_keyframes_detailed", fake_detailed)
+    summarizer = Summarizer(FakeLLM("{}"), FakeASR(), None, _HybridConfig())
+    bundle = run(summarizer.collect_evidence(resource(), video_path=tmp_path / "c.mp4"))
+    payload = bundle.to_dict()
+    assert captured == {"mode": "hybrid", "threshold": 0.5, "max_frames": 6}
+    assert payload["pipeline"]["keyframe_mode"] == "hybrid"
+    assert payload["pipeline"]["scene_cuts"] == 4
+    assert payload["scene_cuts"] == 4
+    assert payload["frames_extracted"] == 2

@@ -7,6 +7,18 @@ adheres to semantic versioning once 1.0.0 is tagged.
 ## Unreleased
 
 ### Added
+- **M3 local media intelligence, fully offline and key-free:**
+  - Scene-cut-aware keyframes: `MEDIAVAULT_KEYFRAME_MODE=hybrid|scene` runs
+    ffmpeg scene detection and merges cuts with uniform anchors inside the same
+    frame budget; `interval` remains the unchanged default and every scene path
+    degrades back to interval extraction on failure.
+  - Dependency-free speaker turn labeling: `MEDIAVAULT_DIARIZATION=heuristic`
+    tags transcript segments as `SPEAKER_A`/`SPEAKER_B` from inter-segment
+    pauses (configurable `_DIARIZE_GAP_MS`), exposed via a narrow `Diarizer`
+    protocol so an embedding-based backend can replace it later. These are
+    conversational turns, not voiceprint-identified people.
+  - New honest pipeline markers (`keyframe_mode`, `scene_cuts`,
+    `diarization`) and `speaker_turns` in both evidence and summary payloads.
 - Open-source release scaffolding: CI coverage gate (`--cov-fail-under=100`),
   CONTRIBUTING.md, SECURITY.md, package classifiers/keywords.
 
