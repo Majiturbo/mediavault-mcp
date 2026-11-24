@@ -341,6 +341,97 @@ def test_analyze_image_set_skips_media(tmp_path, monkeypatch):
     assert "skipped:image-set" in payload["pipeline"]["errors"]
 
 
+def test_analyze_caches_and_reuses_evidence_without_redownload(tmp_path, monkeypatch):
+    # Point the cached frame_paths at a real file so a media request can reuse.
+    frame = tmp_path / "vault" / "douyin" / "1" / "keyframes" / "frame_001.jpg"
+    frame.parent.mkdir(parents=True)
+    frame.write_bytes(b"jpeg")
+
+    class FramedBundle(FakeBundle):
+        def to_dict(self):
+            payload = super().to_dict()
+            payload["frame_paths"] = [str(frame)]
+            payload["frames_extracted"] = 1
+            payload["pipeline"]["keyframes"] = "extracted"
+            return payload
+
+    svc, registry = _keyless_service(tmp_path, monkeypatch)
+
+    async def framed_evidence(resource, video_path=None):
+        return FramedBundle(resource, video_path)
+
+    svc._summarizer.collect_evidence = framed_evidence
+
+    first = run(svc.analyze("https://v.douyin.com/x/"))
+    assert first["cached"] is False
+    assert registry.adapter.download_calls == [("douyin:1", "speed")]
+    assert (tmp_path / "vault" / "douyin" / "1" / "evidence.json").is_file()
+
+    # Second media call hits the cache: no new probe download, payload marked cached.
+    second = run(svc.analyze("https://v.douyin.com/x/"))
+    assert second["cached"] is True
+    assert len(registry.adapter.download_calls) == 1
+    assert second["frame_paths"] == [str(frame)]
+
+    # refresh=True forces a fresh run.
+    refreshed = run(svc.analyze("https://v.douyin.com/x/", refresh=True))
+    assert refreshed["cached"] is False
+    assert len(registry.adapter.download_calls) == 2
+
+
+def test_analyze_cache_miss_when_frames_disappear(tmp_path, monkeypatch):
+    frame = tmp_path / "vault" / "douyin" / "1" / "f.jpg"
+    frame.parent.mkdir(parents=True)
+    frame.write_bytes(b"jpeg")
+
+    class FramedBundle(FakeBundle):
+        def to_dict(self):
+            payload = super().to_dict()
+            payload["frame_paths"] = [str(frame)]
+            return payload
+
+    svc, registry = _keyless_service(tmp_path, monkeypatch)
+    svc._summarizer.collect_evidence = lambda r, video_path=None: _coro(FramedBundle(r, video_path))
+
+    run(svc.analyze("https://v.douyin.com/x/"))
+    frame.unlink()  # media cache can no longer back image blocks
+    run(svc.analyze("https://v.douyin.com/x/"))
+    assert len(registry.adapter.download_calls) == 2  # recomputed, not silently stale
+
+
+def _coro(value):
+    async def _inner(*args, **kwargs):
+        return value
+    return _inner()
+
+
+def test_analyze_metadata_only_reuses_cache_even_without_frames(tmp_path, monkeypatch):
+    svc, registry = _keyless_service(tmp_path, monkeypatch)  # FakeBundle has no frames
+    run(svc.analyze("https://v.douyin.com/x/", with_media=False))
+    cached = run(svc.analyze("https://v.douyin.com/x/", with_media=False))
+    assert cached["cached"] is True
+    assert registry.adapter.download_calls == []  # metadata path never downloads
+
+
+def test_list_library_indexes_cached_evidence(tmp_path, monkeypatch):
+    svc, _ = _keyless_service(tmp_path, monkeypatch)
+    run(svc.analyze("https://v.douyin.com/x/", with_media=False))
+    listing = svc.list_library()
+    assert listing["count"] == 1
+    assert listing["results"][0]["canonical_id"] == "douyin:1"
+
+
+def test_summarize_persists_summary_json(tmp_path, monkeypatch):
+    svc, _ = make_service(tmp_path, monkeypatch)
+    job_id = run(svc.summarize("https://v.douyin.com/x/"))
+    run(_wait_job(svc, job_id))
+    summary_file = tmp_path / "vault" / "douyin" / "1" / "summary.json"
+    assert summary_file.is_file()
+    import json
+    saved = json.loads(summary_file.read_text(encoding="utf-8"))
+    assert saved["tldr"] == "fake summary"
+
+
 def test_analyze_without_url_raises(tmp_path, monkeypatch):
     svc, _ = _keyless_service(tmp_path, monkeypatch)
     with pytest.raises(AdapterError, match="no http"):

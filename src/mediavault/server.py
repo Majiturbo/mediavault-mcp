@@ -1,13 +1,15 @@
 """stdio MCP server surface.
 
-Six tools, intentionally small:
-  parse_url  - resolve pasted share text/URLs to normalized metadata (no bytes)
-  download   - fetch native media into MEDIAVAULT_HOME
-  analyze    - key-free evidence: caption + local transcript + keyframe images
-               returned as content blocks for THIS agent's model to reason over
-  summarize  - optional server-side fusion job; needs a configured LLM endpoint
-  get_job    - poll one job
-  list_jobs  - list recent jobs
+Seven tools, intentionally small:
+  parse_url    - resolve pasted share text/URLs to normalized metadata (no bytes)
+  download     - fetch native media into MEDIAVAULT_HOME
+  analyze      - key-free evidence: caption + local transcript + keyframe images
+                 returned as content blocks for THIS agent's model to reason over;
+                 reuses the on-disk cache unless refresh=true
+  summarize    - optional server-side fusion job; needs a configured LLM endpoint
+  get_job      - poll one job
+  list_jobs    - list recent jobs
+  list_library - index cached evidence/summary artifacts under MEDIAVAULT_HOME
 
 All collection-returning tools use explicit object envelopes because FastMCP
 only serializes the first element of a bare list into the text content block,
@@ -57,22 +59,34 @@ async def download(text: str, quality: str = "compat") -> dict:
 
 
 @mcp.tool()
-async def analyze(text: str, with_media: bool = True) -> list:
+async def analyze(text: str, with_media: bool = True, refresh: bool = False) -> list:
     """Collect video evidence WITHOUT any server-side API key, for this
     agent's own model to summarize. Returns one JSON text block (title,
     author, caption, timestamped transcript, pipeline status) followed by one
     image content block per extracted keyframe, so a vision-capable agent can
     see the frames directly. Local faster-whisper handles speech when
     configured; nothing is sent to a third-party model. Set with_media=false
-    for caption/metadata only (no download). Use summarize instead only if you
-    want the MCP server itself to produce the fused structured summary."""
-    evidence = await service().analyze(text, with_media=with_media)
+    for caption/metadata only (no download). Results are cached per video:
+    repeat calls return cached evidence (cached=true); set refresh=true to
+    re-download and re-analyze. Use summarize instead only if you want the
+    MCP server itself to produce the fused structured summary."""
+    evidence = await service().analyze(
+        text, with_media=with_media, refresh=refresh
+    )
     blocks: list = [evidence]
     for frame_path in evidence.get("frame_paths", []):
         path = Path(frame_path)
         if path.exists():
             blocks.append(Image(path=path))
     return blocks
+
+
+@mcp.tool()
+async def list_library() -> dict:
+    """List cached analyze/summary artifacts under MEDIAVAULT_HOME, newest
+    discovery order, with canonical id, title and whether a fused summary is
+    available. Re-run analyze with refresh=true to update an entry."""
+    return service().list_library()
 
 
 @mcp.tool()

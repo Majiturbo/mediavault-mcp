@@ -36,6 +36,9 @@ requests to re-upload/redistribute downloaded content.
      frame images directly, then write the summary in the user's language.
      Local faster-whisper does speech on-device; nothing is sent to a
      third-party model. with_media=false gives caption/metadata only.
+   - analyze is cached per video: a repeat call returns cached=true without
+     re-downloading; pass refresh=true to force re-analysis. Use list_library
+     to see cached entries before deciding whether to refresh.
    - Use summarize only when the deployment explicitly configured a
      server-side OpenAI-compatible endpoint and wants the MCP server itself
      to emit the fused structured summary; it returns a job id, so poll

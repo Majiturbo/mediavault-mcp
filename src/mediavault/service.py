@@ -6,12 +6,14 @@ Resource -> download or async multimodal summarization job.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from mediavault.adapters import AdapterError, build_default_registry
 from mediavault.asr import build_asr_backend
 from mediavault.config import Config
 from mediavault.jobs import JobManager
+from mediavault.library import MediaLibrary
 from mediavault.llm import LLMError, OpenAICompatibleClient
 from mediavault.models import DownloadResult
 from mediavault.routing import parse_input
@@ -26,6 +28,7 @@ class MediaVaultService:
         self.config = config or Config.load()
         self.registry = build_default_registry(self.config)
         self.jobs = JobManager()
+        self.library = MediaLibrary(self.config)
         # LLM-backed fusion is optional: without a key we still build the
         # key-free evidence path (local ASR + ffmpeg frames) for analyze().
         llm = (
@@ -89,18 +92,32 @@ class MediaVaultService:
         except AdapterError as exc:
             return None, f"download:{type(exc).__name__}"
 
-    async def analyze(self, text: str, with_media: bool = True) -> dict:
+    async def analyze(
+        self, text: str, with_media: bool = True, refresh: bool = False
+    ) -> dict:
         """Key-free evidence collection for the host agent's own LLM.
 
         Probes the link, optionally downloads the clip, and returns caption +
         local transcript + on-disk keyframe paths (the server attaches the
         frames as MCP image blocks). No server-side model call is made.
+
+        Results are cached per canonical_id. When refresh is False and a
+        reusable evidence.json exists (frame files still present for media
+        requests), the cached payload is returned with cached=True instead of
+        re-downloading or re-transcribing.
         """
         urls = parse_input(text)
         if not urls:
             raise AdapterError("no http(s) URL found in the input")
-        primary, rest = urls[0], urls[1:]
+        primary = urls[0]
         resource = await self.registry.probe(primary)
+
+        if not refresh:
+            cached = self.library.reusable_evidence(
+                resource.canonical_id, with_media=with_media
+            )
+            if cached is not None:
+                return self._with_request_envelope(cached, urls)
 
         video_path: str | None = None
         media_note: str | None = None
@@ -109,12 +126,8 @@ class MediaVaultService:
 
         bundle = await self._summarizer.collect_evidence(resource, video_path)
         payload = bundle.to_dict()
-        # analyze is single-resource (its image blocks belong to one clip);
-        # make any extra links explicit so the agent calls again instead of
-        # assuming they were processed.
-        payload["analyzed_url"] = primary.raw_url
-        payload["urls_detected"] = len(urls)
-        payload["additional_urls"] = [u.raw_url for u in rest]
+        payload["analyzed_at"] = datetime.now(UTC).isoformat()
+        payload["cached"] = False
         if media_note:
             payload["pipeline"]["errors"].append(media_note)
             pipeline = payload["pipeline"]
@@ -122,7 +135,24 @@ class MediaVaultService:
                 pipeline["transcript"] = "skipped-no-local-file"
             if video_path is None and pipeline["keyframes"] in {"off", "not-configured"}:
                 pipeline["keyframes"] = "skipped-no-local-file"
+        # Persist before adding the request-only envelope (which differs per call).
+        self.library.save_evidence(resource.canonical_id, payload)
+        return self._with_request_envelope(payload, urls)
+
+    @staticmethod
+    def _with_request_envelope(payload: dict, urls: list) -> dict:
+        # analyze is single-resource (its image blocks belong to one clip);
+        # make any extra links explicit so the agent calls again instead of
+        # assuming they were processed.
+        payload["analyzed_url"] = urls[0].raw_url
+        payload["urls_detected"] = len(urls)
+        payload["additional_urls"] = [u.raw_url for u in urls[1:]]
         return payload
+
+    def list_library(self) -> dict:
+        """Index cached evidence/summary artifacts under MEDIAVAULT_HOME."""
+        entries = self.library.index()
+        return {"count": len(entries), "results": entries}
 
     async def summarize(self, text: str, with_media: bool = True) -> str:
         # Fail fast before downloading anything: the fusion LLM call is the
@@ -159,6 +189,7 @@ class MediaVaultService:
                     pipeline["transcript"] = "skipped-no-local-file"
                 if pipeline["keyframes"] == "off":
                     pipeline["keyframes"] = "skipped-no-local-file"
+            self.library.save_summary(resource.canonical_id, summary)
             return {"resource_id": resource.canonical_id, "summary": summary}
 
         return self.jobs.submit("summarize", run)

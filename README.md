@@ -20,7 +20,9 @@ their own OpenAI-compatible endpoint.
 - M1 (in progress): optional f2 CLI adapter now ranks ahead of yt-dlp for
   Douyin/Xiaohongshu/Kuaishou/TikTok/Weibo/Bilibili and transparently falls back
   when the binary is absent or a page shape drifts; self-built SSR adapters next.
-- M2: gallery-dl image sets, cookie/proxy hardening, media library cache.
+- M2 (in progress): media library cache landed (atomic evidence.json /
+  summary.json, per-video reuse with refresh, list_library index); gallery-dl
+  image sets and cookie/proxy hardening remain.
 - M3: richer local models (speaker diarization, denser scene detection).
 
 ## Install (uv recommended; needs Python 3.11+)
@@ -73,14 +75,15 @@ All collection-returning tools use an explicit object envelope
 |---|---|---|
 | parse_url | share text or URL | normalized metadata, no bytes downloaded |
 | download | share text or URL, quality=compat/quality/speed | native media under MEDIAVAULT_HOME |
-| analyze | share text or URL, with_media=true (default) | **no key**: JSON evidence + keyframe image blocks for the agent's own model |
+| analyze | share text or URL, with_media=true, refresh=false | **no key**: JSON evidence + keyframe image blocks; cached per video |
 | summarize | share text or URL, with_media=true (default) | optional server-side fused summary job (needs an LLM endpoint); poll with get_job |
 | get_job | job id | job polling (queued/running/succeeded/failed) |
 | list_jobs | - | recent background jobs, newest first |
+| list_library | - | index cached evidence/summary artifacts under MEDIAVAULT_HOME |
 
-Output layout: ~/MediaVault/<platform>/<canonical_id>/ with resource.json
-next to the media files. Summary jobs additionally write audio.wav and a
-keyframes/ folder next to the downloaded clip.
+Output layout: ~/MediaVault/<platform>/<canonical_id>/ with resource.json,
+evidence.json (analyze cache) and optional summary.json next to the media
+files. Media jobs additionally write audio.wav and a keyframes/ folder.
 
 ## Two ways to understand a video
 
@@ -101,6 +104,16 @@ reports itself honestly in `pipeline` (ok | off | not-configured | extracted
 | skipped-* | empty | error). The calling agent then writes the summary with
 its own model - the MCP server never makes a third-party model call. Set
 with_media=false for caption/metadata only, with no download.
+
+#### Media library cache
+
+Every analyze result is atomically persisted to evidence.json keyed by
+canonical_id. A repeat analyze returns the cached payload with `cached: true`
+and skips downloading and re-transcribing, as long as the extracted frame
+files still exist (a media request whose frames were deleted recomputes
+automatically rather than returning broken image blocks). Pass refresh=true
+to force a fresh run, and call list_library to browse what is cached; fused
+summarize output is stored alongside as summary.json.
 
 ### summarize: optional server-side fusion
 
@@ -229,13 +242,14 @@ and Python 3.11/3.12 (see .github/workflows/ci.yml); build a wheel with
         ytdlp_adapter.py     generic 1800+ site backend
       models.py              platform-neutral Resource/MediaItem
       jobs.py                thread-owned async job table
+      library.py             atomic evidence/summary cache and library index
       media.py               ffmpeg/ffprobe wrappers (audio, keyframes)
       asr.py                 hosted OpenAI-shape and local faster-whisper ASR
       vision.py              keyframe VLM analysis
       llm.py                 OpenAI-compatible chat client
       summarize.py           key-free evidence collection + optional fusion
       config.py              env / .env configuration
-    tests/                   183 offline tests incl. stdio, ffmpeg and f2 fallback
+    tests/                   199 offline tests incl. stdio, ffmpeg, f2 and cache
     SKILL.md                 thin Agent Skill wrapper for chat agents
 
 ## Legal

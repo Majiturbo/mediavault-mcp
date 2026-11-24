@@ -13,7 +13,8 @@ from mediavault import server
 from mediavault.adapters.base import AdapterError
 
 EXPECTED_TOOLS = {
-    "parse_url", "download", "analyze", "summarize", "get_job", "list_jobs",
+    "parse_url", "download", "analyze", "summarize", "get_job",
+    "list_jobs", "list_library",
 }
 
 
@@ -33,7 +34,8 @@ class FakeService:
             "resource": {"canonical_id": "douyin:1"},
         }]
 
-    async def analyze(self, text: str, with_media: bool = True):
+    async def analyze(self, text: str, with_media: bool = True, refresh: bool = False):
+        self.last_refresh = refresh
         frame_dir = Path(tempfile.mkdtemp())
         real_frame = frame_dir / "frame_001.jpg"
         real_frame.write_bytes(bytes([255, 216, 1, 2, 3]))
@@ -60,6 +62,9 @@ class FakeService:
 
     def list_jobs(self):
         return [{"id": "job123abc", "kind": "summarize", "status": "queued"}]
+
+    def list_library(self):
+        return {"count": 1, "results": [{"canonical_id": "douyin:1", "title": "缓存"}]}
 
 
 @pytest.fixture
@@ -117,6 +122,20 @@ async def _in_memory_scenarios():
         assert image_block.mimeType == "image/jpeg"
         assert image_block.data
         assert "with_media" in schema["analyze"]["properties"]
+        assert "refresh" in schema["analyze"]["properties"]
+
+        # refresh flag is forwarded to the service
+        await client.call_tool(
+            "analyze",
+            {"text": "https://v.douyin.com/x/", "refresh": True},
+        )
+        assert server._service.last_refresh is True
+
+        # list_library exposes the on-disk cache index
+        result = await client.call_tool("list_library", {})
+        library = content_json(result)
+        assert library["count"] == 1
+        assert library["results"][0]["canonical_id"] == "douyin:1"
 
         # summarize returns a job handle and exposes the with_media switch
         result = await client.call_tool("summarize", {"text": "https://v.douyin.com/x/"})
