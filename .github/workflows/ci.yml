@@ -16,10 +16,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Static, cached ffmpeg + ffprobe on every OS, independent of apt/brew
-      # mirrors (GitHub-hosted apt mirrors intermittently stall).
-      - name: Install ffmpeg
+      # Linux: cached static ffmpeg+ffprobe, independent of the intermittently
+      # stalling GitHub apt mirrors (setup-ffmpeg is x64-only, hence Linux-only).
+      - name: Install ffmpeg (Linux, static)
+        if: runner.os == 'Linux'
         uses: FedericoCarboni/setup-ffmpeg@v3
+
+      # macOS runners are arm64; Homebrew provides a native ffmpeg reliably.
+      - name: Install ffmpeg (macOS, Homebrew)
+        if: runner.os == 'macOS'
+        run: |
+          if brew list ffmpeg >/dev/null 2>&1; then
+            echo "ffmpeg already installed via brew"
+          else
+            brew install ffmpeg
+          fi
 
       - name: Verify ffmpeg
         run: ffmpeg -version | head -1 && ffprobe -version | head -1
