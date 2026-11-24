@@ -47,12 +47,11 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [project.scripts]
 mediavault = "mediavault.__main__:main"
 
-# After creating the GitHub repository, uncomment and set the real URLs:
-# [project.urls]
-# Homepage = "https://github.com/<owner>/mediavault-mcp"
-# Repository = "https://github.com/<owner>/mediavault-mcp"
-# Issues = "https://github.com/<owner>/mediavault-mcp/issues"
-# Changelog = "https://github.com/<owner>/mediavault-mcp/blob/main/CHANGELOG.md"
+[project.urls]
+Homepage = "https://github.com/Majiturbo/mediavault-mcp"
+Repository = "https://github.com/Majiturbo/mediavault-mcp"
+Issues = "https://github.com/Majiturbo/mediavault-mcp/issues"
+Changelog = "https://github.com/Majiturbo/mediavault-mcp/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
