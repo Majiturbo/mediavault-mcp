@@ -1,294 +1,208 @@
-# mediavault-mcp
+# 🗄️ MediaVault MCP
 
-Local **stdio MCP server** for the "paste a link, get the original media"
-workflow, plus **agent-native video understanding**. Adapter-based so new
-platforms are added without touching the MCP surface, with an explicit
-fallback chain per platform and an honest no-watermark model.
+**[English](README.md)** ｜ **[简体中文](README.zh-CN.md)**
 
-The MCP server does not need an LLM API key: an `analyze` tool downloads the
-clip, transcribes speech on-device with faster-whisper and returns the
-caption, timestamped transcript and keyframe **images as MCP content blocks**
-for the calling agent's own model to reason over. A server-side `summarize`
-fusion call is kept as an optional convenience for deployments that configure
-their own OpenAI-compatible endpoint.
+[![CI](https://github.com/Majiturbo/mediavault-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Majiturbo/mediavault-mcp/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/Majiturbo/mediavault-mcp)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![MCP](https://img.shields.io/badge/MCP-stdio%20server-purple.svg)](https://modelcontextprotocol.io/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-- **M0 (this repo):** yt-dlp adapter (1800+ sites incl. YouTube, X, TikTok,
-  Instagram, Bilibili), normalized metadata, downloads, and key-free video
-  analysis: on-device transcript plus keyframe image blocks for the calling
-  agent, with optional server-side fusion through an OpenAI-compatible
-  endpoint.
-- M1: optional f2 CLI adapter ranks ahead of yt-dlp for
-  Douyin/Xiaohongshu/Kuaishou/TikTok/Weibo/Bilibili and transparently falls back
-  when the binary is absent or a page shape drifts; self-built SSR adapters next.
-- M2 (in progress): media library cache (atomic evidence.json / summary.json,
-  per-video reuse with refresh, list_library index), the optional gallery-dl
-  image-set adapter (Xiaohongshu/Instagram/Pinterest/Weibo, Stale->fallback
-  chain f2 > gallery-dl > yt-dlp), and centralized proxy/cookie hardening
-  (scheme validation, Netscape cookie checks, honest skip warnings).
-- M3: richer local models (speaker diarization, denser scene detection).
+> **Paste a link, get the original.** A local, key-free stdio MCP server that
+> pulls native no-watermark media from 1800+ platforms and hands your AI agent
+> real video evidence — transcript plus keyframe images — without ever calling
+> a second LLM.
 
-## Install (uv recommended; needs Python 3.11+)
+Your agent already has a model. Why should a media MCP demand another API key?
+MediaVault collects deterministic evidence on your machine
+(yt-dlp / f2 / gallery-dl → ffmpeg → local Whisper) and returns it as MCP
+content blocks, so **the agent you already run does the reasoning**. An
+optional server-side summary fusion is there if you want it, but it is never
+required.
 
-    git clone <this-repo> mediavault-mcp
-    cd mediavault-mcp
-    uv venv --python 3.11
-    uv pip install -e ".[dev]"
-    cp .env.example .env   # fill in when you need proxy/cookies/LLM
+## ✨ Why MediaVault?
 
-ffmpeg is required: HD stream merges, and the audio/frame extraction used by
-the summarization pipeline. Install with "brew install ffmpeg" (macOS) or
-your distro's ffmpeg package.
+- 🔑 **Zero required API keys.** `parse_url`, `download` and `analyze` work with no key and never call a third-party model. Speech is transcribed on-device with faster-whisper; frames come back as image blocks for the agent's own vision.
+- 🛡️ **Honest no-watermark claims.** We fetch the platform's own source stream and report `native` / `unknown` / `none` per item. No cropping, no inpainting, no pretending a watermark was removed.
+- 🔗 **Scored adapter fallback chain.** f2 (CN-first) → gallery-dl (image sets) → yt-dlp (1800+ sites). A stale extractor degrades transparently instead of failing the request.
+- 🧠 **Agent-native video understanding.** One `analyze` call returns a JSON evidence block (caption, timestamped transcript, pipeline status) **plus one image content block per keyframe** — exactly what a vision-capable agent needs.
+- 📚 **Persistent media library.** Every result is atomically cached per video; repeat calls skip re-downloading and re-transcribing, with `refresh=true` to force a fresh run.
+- 🔒 **Local-first and private.** Cookies and proxies stay on your machine, are validated before use, and never appear in logs or cached evidence.
 
-For fully offline, local speech-to-text instead of the hosted ASR endpoint:
+## 🧩 How it works
 
-    uv pip install -e ".[local-asr]"   # adds faster-whisper
+```mermaid
+flowchart LR
+    A[AI Agent / MCP Client] -->|stdio JSON-RPC| B[MediaVault MCP Server]
+    B --> C[Scored Adapter Registry]
+    C --> D1["f2 · score 200<br/>Douyin / XHS / Kuaishou / TikTok"]
+    C --> D2["gallery-dl · 150<br/>image sets"]
+    C --> D3["yt-dlp · 100<br/>1800+ sites"]
+    D1 -. AdapterStale .-> D2 -. AdapterStale .-> D3
+    B --> E[Key-free Evidence Pipeline]
+    E --> Gf[ffmpeg keyframes]
+    E --> Gw[faster-whisper on-device ASR]
+    B --> H[("Media Library<br/>evidence.json cache")]
+    B -. optional .-> I[OpenAI-compatible endpoint<br/>summarize fusion only]
+```
 
-Optional f2 CLI for first-class CN-platform extraction (Douyin, Xiaohongshu,
-Kuaishou, TikTok, Weibo, Bilibili). If f2 is not on PATH the registry simply
-uses yt-dlp, so it is safe to omit:
+The MCP surface never changes when a platform shifts: only the adapter behind
+the registry does, and `AdapterStale` automatically walks the chain.
 
-    pip install f2            # or: pipx install f2
-    # override the binary name/path with MEDIAVAULT_F2_BIN if needed
+## 🚀 Quick start
 
-Optional gallery-dl CLI for image-set posts (Xiaohongshu, Instagram,
-Pinterest, Weibo). It sits between f2 and yt-dlp; if absent the registry
-falls through, so it is safe to omit:
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and ffmpeg
+(`brew install ffmpeg` on macOS, or your distro's package).
 
-    pip install gallery-dl    # or: pipx install gallery-dl
-    # override with MEDIAVAULT_GALLERYDL_BIN; honors proxy/cookies settings
+```bash
+git clone https://github.com/Majiturbo/mediavault-mcp.git
+cd mediavault-mcp
+uv venv --python 3.11
+uv pip install -e ".[dev]"
+uv pip install -e ".[local-asr]"   # optional: fully offline speech-to-text
+cp .env.example .env               # optional: proxy/cookies/LLM settings
+```
 
-## Run as an MCP server
+Run the stdio server:
 
-    uv run python -m mediavault
-    # or the installed console script
-    mediavault
+```bash
+uv run python -m mediavault
+# or the installed console script: mediavault
+```
 
-Client configuration (stdio), e.g. an MCP client JSON:
+Point any MCP client at it (stdio):
 
-    {
-      "mcpServers": {
-        "mediavault": {
-          "command": "uv",
-          "args": ["--directory", "/abs/path/to/mediavault-mcp",
-                   "run", "python", "-m", "mediavault"]
-        }
-      }
+```json
+{
+  "mcpServers": {
+    "mediavault": {
+      "command": "uv",
+      "args": ["--directory", "/abs/path/to/mediavault-mcp",
+               "run", "python", "-m", "mediavault"]
     }
+  }
+}
+```
 
-## Tools
+Optional backends are auto-detected on PATH — install neither, one, or both:
 
-All collection-returning tools use an explicit object envelope
-({"count": n, "results": [...]}) so multi-link messages never lose data.
+```bash
+pipx install f2           # first-class Douyin/Xiaohongshu/Kuaishou/TikTok/Weibo/Bilibili
+pipx install gallery-dl   # image-set posts (Xiaohongshu, Instagram, Pinterest, Weibo)
+```
 
-| Tool | Input | Effect |
+## 🛠️ The seven tools
+
+| Tool | Input | What it does |
 |---|---|---|
-| parse_url | share text or URL | normalized metadata, no bytes downloaded |
-| download | share text or URL, quality=compat/quality/speed | native media under MEDIAVAULT_HOME |
-| analyze | share text or URL, with_media=true, refresh=false | **no key**: JSON evidence + keyframe image blocks; cached per video |
-| summarize | share text or URL, with_media=true (default) | optional server-side fused summary job (needs an LLM endpoint); poll with get_job |
-| get_job | job id | job polling (queued/running/succeeded/failed) |
-| list_jobs | - | recent background jobs, newest first |
-| list_library | - | index cached evidence/summary artifacts under MEDIAVAULT_HOME |
+| `parse_url` | share text or URL | Normalized metadata, no bytes downloaded |
+| `download` | share text or URL, `quality=compat/quality/speed` | Native media under `MEDIAVAULT_HOME` |
+| `analyze` | share text or URL, `with_media=true`, `refresh=false` | **No key**: JSON evidence + keyframe image blocks, cached per video |
+| `summarize` | share text or URL, `with_media=true` | Optional server-side fused summary job (needs an OpenAI-compatible endpoint); poll with `get_job` |
+| `get_job` | job id | Job polling (queued/running/succeeded/failed) |
+| `list_jobs` | — | Recent background jobs, newest first |
+| `list_library` | — | Index cached evidence/summary artifacts |
 
-Output layout: ~/MediaVault/<platform>/<canonical_id>/ with resource.json,
-evidence.json (analyze cache) and optional summary.json next to the media
-files. Media jobs additionally write audio.wav and a keyframes/ folder.
+Collection responses use an explicit envelope `{"count": n, "results": [...]}`,
+so a pasted blob with several links never silently loses one. `analyze` is
+single-resource (its images belong to one clip) and reports `urls_detected` /
+`additional_urls` so the agent knows which links still need a call.
 
-## Two ways to understand a video
+## 🌐 Platform coverage
 
-### analyze: agent-native, no API key (recommended)
+| Platform | Video | Image sets | Primary adapter |
+|---|:---:|:---:|---|
+| Douyin (抖音), Kuaishou (快手) | ✅ | — | f2 → yt-dlp fallback |
+| Xiaohongshu (小红书) | ✅ | ✅ | f2 → gallery-dl → yt-dlp |
+| TikTok, Weibo (微博), Bilibili (B站) | ✅ | partial | f2 → yt-dlp |
+| YouTube, X/Twitter, Vimeo, Reddit | ✅ | — | yt-dlp (native clean streams) |
+| Instagram, Pinterest | ✅ | ✅ | gallery-dl → yt-dlp |
+| 1800+ other yt-dlp sites | ✅ | partial | yt-dlp |
 
-`analyze` is deterministic and key-free. It probes the link, downloads the
-speed-profile clip, and returns mixed MCP content blocks:
+External CLIs are optional: when f2 or gallery-dl is absent, its adapter raises
+`AdapterStale` and the registry falls through automatically — the same MCP
+call keeps working.
 
-1. one **text block** with JSON evidence: title, author, caption, a
-   timestamped transcript and the pipeline status;
-2. one **image block per keyframe** (ffmpeg samples up to
-   MEDIAVAULT_KEYFRAME_MAX downscaled JPEGs across the timeline), so a
-   vision-capable agent sees the actual frames.
+## 🧠 Two ways to understand a video
 
-Speech is transcribed on-device by local faster-whisper when installed, or
-by a configured hosted ASR endpoint; every stage is fault-tolerant and
-reports itself honestly in `pipeline` (ok | off | not-configured | extracted
-| skipped-* | empty | error). The calling agent then writes the summary with
-its own model - the MCP server never makes a third-party model call. Set
-with_media=false for caption/metadata only, with no download.
+**1. `analyze` — agent-native, no key (recommended).** Deterministic evidence:
+title/author/caption, a timestamped transcript (local faster-whisper or your ASR
+endpoint), and up to `MEDIAVAULT_KEYFRAME_MAX` downscaled JPEG keyframes
+returned as MCP image blocks. Every stage reports itself honestly in `pipeline`
+(`ok` / `off` / `not-configured` / `extracted` / `skipped-*` / `empty` /
+`error`); one failed stage never kills the run. Your agent reads the transcript
+and looks at the frames with its own model.
 
-#### Media library cache
+**2. `summarize` — optional server-side fusion.** Runs the same evidence
+collection, then makes one OpenAI-compatible chat call that fuses caption,
+transcript and visual observations into a stable schema (`tldr`, `chapters`,
+`entities`, `hooks`, ...). Fails fast with an actionable message when no
+endpoint is configured — in which case `analyze` is the answer.
 
-Every analyze result is atomically persisted to evidence.json keyed by
-canonical_id. A repeat analyze returns the cached payload with `cached: true`
-and skips downloading and re-transcribing, as long as the extracted frame
-files still exist (a media request whose frames were deleted recomputes
-automatically rather than returning broken image blocks). Pass refresh=true
-to force a fresh run, and call list_library to browse what is cached; fused
-summarize output is stored alongside as summary.json.
+### Fully local, no commercial key
 
-#### Proxy and cookie policy
+Point everything at a local stack and keep audio on-device:
 
-One network module (`mediavault/network.py`) governs every backend, so the
-rules are identical across yt-dlp, gallery-dl, f2 and the OpenAI-compatible
-clients:
+```bash
+OPENAI_BASE_URL=http://localhost:11434/v1   # Ollama / LM Studio / vLLM
+OPENAI_API_KEY=ollama                        # placeholder, local servers ignore it
+MEDIAVAULT_LLM_MODEL=qwen2.5
+MEDIAVAULT_VLM_MODEL=llava
+MEDIAVAULT_ASR_BACKEND=local                 # faster-whisper, audio never leaves the machine
+MEDIAVAULT_WHISPER_MODEL=base
+MEDIAVAULT_WHISPER_DEVICE=mps                # cpu on CI/Linux · mps on Apple Silicon · cuda on NVIDIA
+```
 
-- `MEDIAVAULT_PROXY` accepts `http(s)://`, `socks4://`, `socks5://` and
-  `socks5h://`; a bare `host:port` is assumed HTTP. Malformed values fail
-  fast with a clear NetworkConfigError instead of a downstream stack trace.
-- `MEDIAVAULT_COOKIES_FILE` is validated as a Netscape cookies.txt before use.
-  A missing or malformed file is skipped with a warning on the result's
-  `notes`, and `MEDIAVAULT_COOKIES_BROWSER` takes over when set, so one bad
-  path never aborts an extraction.
-- gallery-dl additionally forwards `--cookies-from-browser`; f2 manages cookies
-  through its own YAML config, so for f2 the proxy is forwarded and the cookie
-  environment variables produce an explicit reminder rather than a bad flag.
+## ⚙️ Configuration
 
-### summarize: optional server-side fusion
+All settings come from environment variables or `.env` (see
+[.env.example](.env.example) for the full list).
 
-`summarize` runs the same evidence collection and then makes one
-OpenAI-compatible chat call that fuses caption, transcript and (when a VLM
-is configured) visual observations into the stable structured schema below.
-It requires OPENAI_API_KEY (a placeholder is enough for a local Ollama/LM
-Studio shim) and fails fast with an actionable message when unconfigured;
-without a key, use `analyze` instead. The three evidence channels are:
-
-1. Caption / title / description - always available.
-2. Speech transcript - ffmpeg extracts 16 kHz mono WAV, then either the
-   OpenAI-compatible /audio/transcriptions endpoint or local faster-whisper
-   transcribes it with timestamps.
-3. Visual facts - when a server VLM is configured, one observation per frame;
-   otherwise the frames are still returned as image blocks by `analyze`.
-
-Every media stage is fault-tolerant: a missing audio stream, a disabled
-backend or a failed vision call is reported honestly instead of failing the
-whole job.
-
-The returned summary keeps a stable schema:
-
-    {
-      "tldr": "...",
-      "chapters": [{"start_ms": 0, "end_ms": 2000, "topic": "..."}],
-      "transcript": "full transcription text",
-      "visual_facts": [{"frame": "frame_001.jpg", "index": 1, "observation": "..."}],
-      "entities": {"products": [], "locations": [], "people": []},
-      "hooks": ["..."],
-      "language": "zh",
-      "pipeline": {
-        "source": "multimodal",            # or transcript+caption / vision+caption / caption-only
-        "transcript": "ok",                # ok | off | not-configured | skipped-* | empty | error
-        "keyframes": "ok",                 # same vocabulary
-        "errors": [],
-        "canonical_id": "douyin:..."
-      }
-    }
-
-The block above is the `summarize` output shape; `analyze` returns the same
-evidence fields in its JSON text block plus the keyframe image blocks. Set
-with_media=false for a fast, download-free caption-only response. When the
-video cannot be downloaded, the run still succeeds with caption/metadata and
-records the reason under pipeline.errors. Image sets skip the media stages
-(skipped:image-set).
-
-### Fully local, no commercial API key
-
-parse_url, download and analyze never need a key and never call a
-third-party model: with local faster-whisper installed, analyze keeps both
-audio and frames on-device and hands the evidence to your agent. If you
-also want the MCP server itself to fuse a summary (the `summarize` tool),
-point its OpenAI-compatible endpoint at a local server (Ollama, LM Studio,
-vLLM); the key just has to be a non-empty placeholder because local servers
-do not validate it. Example .env for Ollama plus on-device faster-whisper:
-
-    OPENAI_BASE_URL=http://localhost:11434/v1
-    OPENAI_API_KEY=ollama
-    MEDIAVAULT_LLM_MODEL=qwen2.5          # any local chat model
-    MEDIAVAULT_VLM_MODEL=llava            # a local vision model for keyframes
-    MEDIAVAULT_ASR_BACKEND=local          # faster-whisper, audio stays on-device
-    MEDIAVAULT_WHISPER_MODEL=base
-    MEDIAVAULT_WHISPER_DEVICE=mps         # cpu on CI/Linux, mps on Apple Silicon, cuda on NVIDIA
-
-Without a configured endpoint, parse_url/download still work, while summarize
-fails fast with an explicit message instead of downloading first.
-
-### Summarization configuration
-
-| Variable | Default | Meaning |
+| Variable | Default | Purpose |
 |---|---|---|
-| OPENAI_BASE_URL | https://api.openai.com/v1 | any OpenAI-shape endpoint |
-| OPENAI_API_KEY | - | required for chat, hosted ASR and VLM |
-| MEDIAVAULT_LLM_MODEL | gpt-4o-mini | fusion/chat model |
-| MEDIAVAULT_VLM_MODEL | gpt-4o-mini | vision-capable model for keyframes |
-| MEDIAVAULT_ASR_BACKEND | openai | openai (hosted) / local (faster-whisper) / off |
-| MEDIAVAULT_ASR_MODEL | whisper-1 | model id for /audio/transcriptions |
-| MEDIAVAULT_WHISPER_MODEL | base | faster-whisper size when backend=local |
-| MEDIAVAULT_WHISPER_DEVICE | cpu | local ASR device: cpu / mps (Apple Silicon) / cuda |
-| MEDIAVAULT_KEYFRAME_MAX | 8 | max sampled frames per video |
-| MEDIAVAULT_KEYFRAME_WIDTH | 768 | downscale width, caps VLM token usage |
+| `MEDIAVAULT_HOME` | `~/MediaVault` | Download + cache root (`<platform>/<id>/`) |
+| `MEDIAVAULT_PROXY` | — | `http(s)/socks4/socks5/socks5h`; bare `host:port` assumed HTTP; invalid values fail fast |
+| `MEDIAVAULT_COOKIES_FILE` | — | Netscape cookies.txt, validated before use; bad paths skipped with a warning |
+| `MEDIAVAULT_COOKIES_BROWSER` | — | Reuse a logged-in browser (chrome/firefox/...) |
+| `MEDIAVAULT_F2_BIN` / `MEDIAVAULT_GALLERYDL_BIN` | `f2` / `gallery-dl` | Override optional CLI paths |
+| `MEDIAVAULT_ASR_BACKEND` | `openai` | `openai` (hosted) / `local` (faster-whisper) / `off` |
+| `MEDIAVAULT_WHISPER_MODEL` / `_DEVICE` | `base` / `cpu` | Local ASR size and device (cpu/mps/cuda) |
+| `MEDIAVAULT_KEYFRAME_MAX` / `_WIDTH` | `8` / `768` | Frame budget and downscale width |
+| `OPENAI_BASE_URL` / `OPENAI_API_KEY` | OpenAI / — | Only needed for `summarize`, hosted ASR and server VLM |
 
-## Design notes
+Downloads land in `~/MediaVault/<platform>/<canonical_id>/` alongside
+`resource.json`, `evidence.json` (the analyze cache) and optional
+`summary.json`; media runs also write `audio.wav` and a `keyframes/` folder.
 
-- Adapters declare platforms/capabilities and return platform-neutral
-  Resource objects; the registry walks scored fallback chains and converts
-  AdapterStale into automatic degradation instead of hard failure.
-- No-watermark means "source stream carries no burned-in watermark" (native
-  play_addr / source MP4). We never crop or blur, and never claim removal we
-  did not perform; unverified streams stay marked "unknown".
-- No third-party parser API keys are baked in. Cookies and proxies are local
-  configuration and never appear in URLs or logs.
-- analyze never calls a model: local ASR keeps audio on-device and frames
-  come back as image blocks. Only the optional summarize fusion, hosted ASR
-  and server VLM use the OpenAI-compatible endpoint you configure.
-- The job manager runs its own event loop on a daemon thread, so background
-  jobs are independent of the short-lived event loop that submitted them.
+## 🧭 Design principles
 
-## Development
+1. **The host agent is the brain.** MCP servers should gather evidence, not rent a second LLM behind the caller's back. Model calls are opt-in.
+2. **Degrade honestly, per stage.** Every adapter failure, skipped media stage and ignored cookie file is surfaced as a marker or note — never hidden.
+3. **No-watermark means source-native, not "removed".** We never crop or blur; unverifiable streams stay `unknown`.
+4. **Credentials stay local.** No third-party parser keys, no telemetry, no credentials in URLs, logs or caches.
+5. **Test the seams, mock the world.** 228 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests run when ffmpeg is present and skip themselves otherwise.
 
-    # lint (ruff rules: E, F, I, UP, B, SIM)
-    .venv/bin/ruff check src tests
+## 🗺️ Roadmap
 
-    # full suite, offline, with branch coverage
-    .venv/bin/python -m pytest -q
+- **Next:** self-built SSR adapters for CN platforms (calibrated against live page shapes), richer local models — speaker diarization and denser scene detection.
+- **Always:** keeping the adapter chain and evidence schema stable while platforms drift.
 
-The suite is fully offline (all platform/HTTP/model calls are mocked) and
-sits at 100% branch coverage of src/mediavault. It includes a real
-stdio-subprocess transport test and end-to-end tests that drive genuine
-ffmpeg audio/frame extraction on a synthetic clip (skipped automatically if
-ffmpeg is absent). CI installs ffmpeg and runs lint + tests on Ubuntu/macOS
-and Python 3.11/3.12 (see .github/workflows/ci.yml); build a wheel with
-"uv build".
+## 🧪 Development
 
-## Project layout
+```bash
+.venv/bin/ruff check src tests                          # lint
+.venv/bin/python -m pytest -q --cov-fail-under=100      # offline suite, 100% gate
+uv build                                                # wheel + sdist
+```
 
-    src/mediavault/
-      server.py              stdio MCP tools incl. analyze image blocks
-      service.py             orchestration facade (probe -> download -> summarize)
-      routing.py             share-text URL extraction + platform rules
-      adapters/
-        base.py              Adapter protocol, AdapterError/AdapterStale
-        registry.py          scored fallback chains
-        f2_adapter.py        optional f2 CLI, CN platforms (Stale->yt-dlp fallback)
-        gallerydl_adapter.py optional gallery-dl image sets (Stale->yt-dlp fallback)
-        ytdlp_adapter.py     generic 1800+ site backend
-      models.py              platform-neutral Resource/MediaItem
-      jobs.py                thread-owned async job table
-      library.py             atomic evidence/summary cache and library index
-      network.py             central proxy/cookie validation and backend option builders
-      media.py               ffmpeg/ffprobe wrappers (audio, keyframes)
-      asr.py                 hosted OpenAI-shape and local faster-whisper ASR
-      vision.py              keyframe VLM analysis
-      llm.py                 OpenAI-compatible chat client
-      summarize.py           key-free evidence collection + optional fusion
-      config.py              env / .env configuration
-    tests/                   228 offline tests incl. stdio, ffmpeg, f2, gallery-dl, cache and network policy
-    SKILL.md                 thin Agent Skill wrapper for chat agents
+CI runs the same three checks on Ubuntu/macOS × Python 3.11/3.12. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the adapter contract and coverage
+policy, [CHANGELOG.md](CHANGELOG.md) for release history, and
+[SECURITY.md](SECURITY.md) for vulnerability reporting.
 
-## Contributing
+## ⚖️ License
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the offline dev setup, the 100%
-coverage policy, adapter contract, and honesty rules. Release history is in
-[CHANGELOG.md](CHANGELOG.md); vulnerability reporting is described in
-[SECURITY.md](SECURITY.md).
-
-## Legal
-
-MIT licensed. Only process publicly available content, respect each
+[MIT](LICENSE). Only process publicly available content, respect each
 platform's terms of service and applicable copyright, and keep downloads for
 personal study. This project performs no DRM circumvention.
