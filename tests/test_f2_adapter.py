@@ -49,15 +49,13 @@ class FakeRunner:
     async def __call__(self, args, out_dir):
         self.calls.append(args)
         out_dir.mkdir(parents=True, exist_ok=True)
-        is_probe = "-M" in args
         if self.code != 0:
             return self.code, "", self.stderr
-        if is_probe and self.write_meta and self.payload is not None:
+        if self.write_meta and self.payload is not None:
             (out_dir / "metadata.json").write_text(
                 json.dumps(self.payload), encoding="utf-8"
             )
-        if not is_probe:
-            (out_dir / "clip.mp4").write_bytes(b"fake-mp4")
+        (out_dir / "clip.mp4").write_bytes(b"fake-mp4")
         return 0, "ok", ""
 
 
@@ -141,7 +139,8 @@ def test_probe_maps_nested_douyin_video(tmp_path, monkeypatch):
     probe_args = runner.calls[0]
     assert probe_args[0] == "/usr/local/bin/f2"
     assert probe_args[1] == "dy"
-    assert "-u" in probe_args and "-M" in probe_args
+    assert probe_args[-2:] == ["-M", "one"]
+    assert "-u" in probe_args
 
 
 def test_probe_maps_xhs_image_set_and_list_payload(tmp_path, monkeypatch):
@@ -286,9 +285,9 @@ def test_proxy_argv_and_cookie_warning(tmp_path, monkeypatch):
 
     resource = run(adapter.probe(canonicalize("https://v.douyin.com/abc/")))
     args = runner.calls[0]
-    assert "--proxy" in args and "socks5://127.0.0.1:1080" in args
-    # f2 takes cookies via its own YAML config: warn instead of a bad file arg
-    assert "--cookie" not in args and "-M" in args
+    assert "-P" in args and "socks5://127.0.0.1:1080" in args
+    # f2 takes cookies via its own YAML/config options: warn instead of a bad file arg
+    assert "--cookie" not in args and "-M" in args and "one" in args
     assert any("YAML config" in note for note in resource.notes)
 
 
@@ -385,3 +384,30 @@ def test_registry_raises_when_every_adapter_fails(tmp_path, monkeypatch):
     registry = AdapterRegistry([f2, AlwaysFail(config)])
     with pytest.raises(AdapterError, match="all adapters failed"):
         run(registry.probe(canonicalize("https://v.douyin.com/x/")))
+
+
+def test_probe_no_metadata_403_is_sanitized_stale(tmp_path, monkeypatch):
+    adapter = make_adapter(tmp_path)
+    enable(adapter, monkeypatch)
+
+    async def blocked(args, out_dir):
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return 0, "", "HTTP状态码错误： Status Code: 403 msToken=secret a_bogus=secret"
+
+    monkeypatch.setattr(adapter, "_run", blocked)
+    with pytest.raises(AdapterStale, match="HTTP 403") as exc:
+        run(adapter.probe(canonicalize("https://v.douyin.com/x/")))
+    assert "msToken" not in str(exc.value) and "a_bogus" not in str(exc.value)
+
+
+def test_probe_no_metadata_cookie_block_is_sanitized_stale(tmp_path, monkeypatch):
+    adapter = make_adapter(tmp_path)
+    enable(adapter, monkeypatch)
+
+    async def blocked(args, out_dir):
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return 0, "", "cookie expired, please log in"
+
+    monkeypatch.setattr(adapter, "_run", blocked)
+    with pytest.raises(AdapterStale, match="cookie/login/signing block"):
+        run(adapter.probe(canonicalize("https://v.douyin.com/x/")))

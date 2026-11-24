@@ -107,12 +107,13 @@ def gallerydl_network_opts(config: Config) -> tuple[list[str], list[str]]:
 
 
 def f2_network_opts(config: Config) -> tuple[list[str], list[str]]:
-    """f2 argv: proxy only; cookies live in f2's own YAML config."""
+    """f2 argv: proxy only; cookies live in f2's own YAML/config options."""
     args: list[str] = []
     warnings: list[str] = []
     proxy = normalize_proxy(config.proxy)
     if proxy:
-        args += ["--proxy", proxy]
+        # f2 0.0.1.x uses -P/--proxies (repeated TEXT), not yt-dlp's --proxy.
+        args += ["-P", proxy]
     if config.cookies_file or config.cookies_browser:
         warnings.append(
             "f2 reads cookies from its own YAML config, not MEDIAVAULT_COOKIES_*; "

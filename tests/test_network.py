@@ -108,7 +108,7 @@ def test_f2_opts_proxy_only_with_cookie_warning(tmp_path):
         MEDIAVAULT_COOKIES_BROWSER="chrome",
     )
     args, warnings = f2_network_opts(cfg)
-    assert args == ["--proxy", "socks5://h:1"]
+    assert args == ["-P", "socks5://h:1"]
     assert any("YAML config" in w for w in warnings)
 
     args2, warnings2 = f2_network_opts(make_config(tmp_path))

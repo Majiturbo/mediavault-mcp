@@ -6,6 +6,12 @@ adheres to semantic versioning once 1.0.0 is tagged.
 
 ## Unreleased
 
+### Fixed
+- Calibrated the optional f2 adapter for f2 CLI 0.0.1.x: `-M` is now
+  `--mode` and requires `one` for a single work, and proxies use `-P` instead
+  of the old `--proxy` form. Empty f2 runs on HTTP 403 now report a sanitized
+  stale marker without leaking msToken/a_bogus request parameters.
+
 ### Added
 - **M3 local media intelligence, fully offline and key-free:**
   - Scene-cut-aware keyframes: `MEDIAVAULT_KEYFRAME_MODE=hybrid|scene` runs

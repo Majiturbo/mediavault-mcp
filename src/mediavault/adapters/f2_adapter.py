@@ -85,15 +85,16 @@ class F2Adapter(Adapter):
     def _probe_args(
         self, binary: str, app: str, url: str, out_dir: Path, net_opts: list[str]
     ) -> list[str]:
-        # -M: write metadata without downloading the media bytes.
-        return [binary, *net_opts, app, "-u", url, "-p", str(out_dir), "-M"]
+        # f2 0.0.1.x changed -M from a metadata-only boolean into --mode; a
+        # single pasted work must explicitly use the one-work mode.
+        return [binary, *net_opts, app, "-u", url, "-p", str(out_dir), "-M", "one"]
 
     def _download_args(
         self, binary: str, app: str, url: str, out_dir: Path, net_opts: list[str]
     ) -> list[str]:
         # f2 selects the platform's source stream; the yt-dlp quality presets
         # do not map onto f2 filters, so quality is best-effort here.
-        return [binary, *net_opts, app, "-u", url, "-p", str(out_dir)]
+        return [binary, *net_opts, app, "-u", url, "-p", str(out_dir), "-M", "one"]
 
     async def _run(
         self, args: list[str], out_dir: Path
@@ -117,6 +118,21 @@ class F2Adapter(Adapter):
         if any(marker in text for marker in _STALE_MARKERS):
             return AdapterStale(f"f2 stale: {detail[:200]}")
         return AdapterError(f"f2 failed: {detail[:200]}")
+
+    @staticmethod
+    def _no_metadata_error(stderr: str, stdout: str) -> AdapterStale:
+        # Do not embed raw f2 output: its request URLs carry msToken/a_bogus.
+        text = (stderr or stdout or "").lower()
+        if "403" in text:
+            return AdapterStale(
+                "f2 wrote no metadata JSON document (CLI reported HTTP 403; "
+                "fresh/login cookies likely required)"
+            )
+        if any(marker in text for marker in _STALE_MARKERS):
+            return AdapterStale(
+                "f2 wrote no metadata JSON document (CLI reported a cookie/login/signing block)"
+            )
+        return AdapterStale("f2 wrote no metadata JSON document")
 
     def _work_dir(self, url: CanonicalURL, kind: str) -> Path:
         return (
@@ -150,7 +166,7 @@ class F2Adapter(Adapter):
             reverse=True,
         )
         if not meta_files:
-            raise AdapterStale("f2 wrote no metadata JSON document")
+            raise self._no_metadata_error(stderr, stdout)
         try:
             payload = json.loads(meta_files[0].read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
