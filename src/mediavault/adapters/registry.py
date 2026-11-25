@@ -14,6 +14,7 @@ from mediavault.adapters.base import Adapter, AdapterError, AdapterStale
 from mediavault.adapters.browser_adapter import BrowserYtDlpAdapter
 from mediavault.adapters.f2_adapter import F2Adapter
 from mediavault.adapters.gallerydl_adapter import GalleryDLAdapter
+from mediavault.adapters.ssr_adapter import SsrAdapter
 from mediavault.adapters.ytdlp_adapter import YtDlpAdapter
 from mediavault.config import Config
 from mediavault.models import Resource
@@ -72,6 +73,15 @@ def build_default_registry(config: Config) -> AdapterRegistry:
             platforms=BrowserYtDlpAdapter.platforms,
             capabilities=BrowserYtDlpAdapter.capabilities,
         ))
+    # Binary-free SSR fetch (score 175) sits below f2 (200) and above
+    # gallery-dl (150); it only claims Xiaohongshu/Kuaishou and degrades via
+    # AdapterStale when the document carries no hydrated detail state.
+    adapters.append(SsrAdapter(
+        config=config,
+        name="ssr",
+        platforms=SsrAdapter.platforms,
+        capabilities=SsrAdapter.capabilities,
+    ))
     adapters.extend([
         F2Adapter(
             config=config,

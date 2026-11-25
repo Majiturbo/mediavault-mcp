@@ -35,10 +35,11 @@ flowchart LR
     B --> C[带打分的适配器注册表]
     C --> D0["本地浏览器 · 220（可选开启）<br/>过 JS-VM 挑战，抖音 / 小红书 / 快手"]
     C --> D1["f2 · 分数 200<br/>抖音 / 小红书 / 快手 / TikTok"]
+    C --> D1b["SSR 取数 · 175<br/>无需二进制，小红书 / 快手注水状态"]
     C --> D2["gallery-dl · 150<br/>图集帖子"]
     C --> D3["yt-dlp · 100<br/>1800+ 站点"]
     D0 -. AdapterStale .-> D1
-    D1 -. AdapterStale .-> D2 -. AdapterStale .-> D3
+    D1 -. AdapterStale .-> D1b -. AdapterStale .-> D2 -. AdapterStale .-> D3
     B --> E[无密钥取证流水线]
     E --> Gf[ffmpeg 抽关键帧]
     E --> Gw[faster-whisper 本机转写]
@@ -98,10 +99,16 @@ export MEDIAVAULT_BROWSER_BOOTSTRAP=on
 浏览器适配器绝不登录账号：它启动本地 Playwright 浏览器，让 JS-VM 挑战自行
 通过，然后在页面内部读取平台数据（抖音详情接口 / 小红书注水后的笔记状态 /
 快手 Apollo 缓存；外部客户端即使带着完整 Cookie 也会被拒），再直接下载带签名的
-媒体地址。未安装 Playwright 或开关关闭时，自动回退到 f2 → gallery-dl → yt-dlp
-链路。在数据中心 IP 下，小红书风控可能返回 `300012 网络存在风险` 页面、快手可能
+媒体地址。未安装 Playwright 或开关关闭时，自动回退到 f2 → SSR → gallery-dl →
+yt-dlp 链路。在数据中心 IP 下，小红书风控可能返回 `300012 网络存在风险` 页面、快手可能
 返回裸 `{"result": 2}` 响应、均无注水状态，此时适配器给出诚实的 Stale 标记并
 回退，绝不猜测内容。
+
+常驻的 **SSR 适配器**（分数 175）是轻量、无二进制路径：它用浏览器风格 UA 请求分享
+文档，直接解析服务端渲染 HTML 里已内联的状态（小红书 `__INITIAL_STATE__`、快手
+`__APOLLO_STATE__`），不启动 Chromium、不执行任何 JavaScript。在可信住宅网络下，
+该状态可能在脚本运行前就携带详情对象；遇到登录壳/风控页则没有详情，适配器抛 Stale。
+在真机住宅网络成功路径验证之前，它有意排在 f2（200）之后。
 
 ## 🛠️ 七个工具
 
@@ -125,8 +132,8 @@ export MEDIAVAULT_BROWSER_BOOTSTRAP=on
 | 平台 | 视频 | 图集 | 首选适配器 |
 |---|:---:|:---:|---|
 | 抖音 | ✅ | ✅ | 本地浏览器（可选开启）→ f2 → 回退 yt-dlp |
-| 快手 | ✅ | — | 本地浏览器（可选开启）→ f2 → 回退 yt-dlp |
-| 小红书 | ✅ | ✅ | 本地浏览器（可选开启）→ f2 → gallery-dl → yt-dlp |
+| 快手 | ✅ | — | 本地浏览器（可选开启）→ f2 → SSR → 回退 yt-dlp |
+| 小红书 | ✅ | ✅ | 本地浏览器（可选开启）→ f2 → SSR → gallery-dl → yt-dlp |
 | TikTok、微博、B站 | ✅ | 部分 | f2 → yt-dlp |
 | YouTube、X/Twitter、Vimeo、Reddit | ✅ | — | yt-dlp（原生干净流） |
 | Instagram、Pinterest | ✅ | ✅ | gallery-dl → yt-dlp |
@@ -182,6 +189,7 @@ MEDIAVAULT_WHISPER_DEVICE=mps                # CI/Linux 用 cpu · Apple 芯片�
 | `MEDIAVAULT_BROWSER_ENGINE` | `chromium` | `chromium` / `firefox` / `webkit` |
 | `MEDIAVAULT_BROWSER_HEADLESS` | `true` | 设为 `false` 显示浏览器窗口，便于人工查看挑战 |
 | `MEDIAVAULT_BROWSER_TIMEOUT_MS` | `30000` | 挑战就绪与 CDN 下载的超时（毫秒） |
+| `MEDIAVAULT_SSR_TIMEOUT_MS` | `20000` | 无浏览器 SSR HTML 取数的超时（毫秒） |
 | `MEDIAVAULT_ASR_BACKEND` | `openai` | `openai`（托管）/ `local`（faster-whisper）/ `off` |
 | `MEDIAVAULT_WHISPER_MODEL` / `_DEVICE` | `base` / `cpu` | 本地转写模型尺寸与设备（cpu/mps/cuda） |
 | `MEDIAVAULT_KEYFRAME_MAX` / `_WIDTH` | `8` / `768` | 关键帧数量上限与降采样宽度 |
@@ -199,13 +207,14 @@ MEDIAVAULT_WHISPER_DEVICE=mps                # CI/Linux 用 cpu · Apple 芯片�
 2. **逐阶段诚实降级。** 每次适配器失败、每个被跳过的媒体阶段、每个被忽略的 Cookie 文件，都会以标记或备注呈现，绝不隐藏。
 3. **无水印指的是源头原生，而非“已移除”。** 我们从不裁剪或涂抹；无法核实的流保持 `unknown`。
 4. **凭证不出本机。** 不内置第三方解析 Key、无遥测，凭证不进 URL、日志或缓存。
-5. **测接缝、模拟外部世界。** 326 个离线测试做到语句与分支 100% 覆盖；真实 ffmpeg 冒烟测试（含场景检测）在 ffmpeg 存在时运行，否则自动跳过。
+5. **测接缝、模拟外部世界。** 348 个离线测试做到语句与分支 100% 覆盖；真实 ffmpeg 冒烟测试（含场景检测）在 ffmpeg 存在时运行，否则自动跳过。
 
 ## 🗺️ 路线图
 
 - **已交付：** 基于 ffmpeg 场景切换的关键帧（`hybrid` / `scene`）与零依赖说话人话轮标注，均无需密钥、完全离线。
 - **已交付（M4）：** 可选开启的本地浏览器适配器，匿名通过抖音 / 小红书 / 快手 JS-VM 挑战并在页面内读取签名媒体；抖音已用真实分享链接端到端验证、全程无账号登录，小红书（笔记状态）与快手（Apollo 缓存）以防御式纯解析处理，遇网络风控诚实降级。
-- **下一步：** 建设国内平台自建 SSR 适配器，随后在同一个 `Diarizer` 接口后接入基于声纹嵌入的真实说话人分离。
+- **已交付（SSR）：** 无二进制 SSR 适配器（分数 175），用纯 HTTP 取分享文档并解析小红书 / 快手的注水状态，不启动浏览器；登录壳/风控页给出诚实 Stale 标记。在住宅网络成功路径验证之前排在 f2 之后。
+- **下一步：** 在同一个 `Diarizer` 接口后接入基于声纹嵌入的真实说话人分离，并在住宅网络下真机校准小红书 / 快手的 SSR 与浏览器路径。
 - **长期：** 在平台不断改版的同时，保持适配器链与证据结构稳定。
 
 ## 🧪 开发

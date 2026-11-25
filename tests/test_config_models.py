@@ -213,11 +213,13 @@ def test_m4_browser_settings(tmp_path: Path):
         "MEDIAVAULT_BROWSER_ENGINE": "firefox",
         "MEDIAVAULT_BROWSER_HEADLESS": "false",
         "MEDIAVAULT_BROWSER_TIMEOUT_MS": "12000",
+        "MEDIAVAULT_SSR_TIMEOUT_MS": "7000",
     })
     assert cfg.browser_bootstrap == "on"
     assert cfg.browser_engine == "firefox"
     assert cfg.browser_headless is False
     assert cfg.browser_timeout_ms == 12000
+    assert cfg.ssr_timeout_ms == 7000
 
 
 def test_m4_browser_invalid_choices_fall_back(tmp_path: Path):
@@ -227,11 +229,13 @@ def test_m4_browser_invalid_choices_fall_back(tmp_path: Path):
         "MEDIAVAULT_BROWSER_ENGINE": "lynx",
         "MEDIAVAULT_BROWSER_HEADLESS": "banana",
         "MEDIAVAULT_BROWSER_TIMEOUT_MS": "nope",
+        "MEDIAVAULT_SSR_TIMEOUT_MS": "nope",
     })
     assert cfg.browser_bootstrap == "off"
     assert cfg.browser_engine == "chromium"
     assert cfg.browser_headless is False  # unrecognized bool string
     assert cfg.browser_timeout_ms == 30000
+    assert cfg.ssr_timeout_ms == 20000  # invalid int falls back to default
 
 
 def test_m4_browser_bool_truthy_strings(tmp_path: Path):
@@ -241,3 +245,7 @@ def test_m4_browser_bool_truthy_strings(tmp_path: Path):
             "MEDIAVAULT_BROWSER_HEADLESS": value,
         })
         assert cfg.browser_headless is True
+
+def test_ssr_timeout_default(tmp_path: Path):
+    cfg = Config.load({"MEDIAVAULT_HOME": str(tmp_path / "vault")})
+    assert cfg.ssr_timeout_ms == 20000

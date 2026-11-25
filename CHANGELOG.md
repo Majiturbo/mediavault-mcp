@@ -35,8 +35,24 @@ adheres to semantic versioning once 1.0.0 is tagged.
     guessing.
   - The browser adapter ranks first (220) for Douyin/Xiaohongshu/Kuaishou only
     while enabled; missing Playwright, an uncleared challenge or the off switch
-    all degrade through `AdapterStale` into the unchanged f2 -> gallery-dl ->
-    yt-dlp chain.
+    all degrade through `AdapterStale` into the unchanged f2 -> SSR ->
+    gallery-dl -> yt-dlp chain.
+- **Binary-free SSR adapter (always on, anonymous):**
+  - New `ssr_state` extraction: a string-aware brace-matching scan plus tolerant
+    JSON decode (bare `undefined` -> null) reads Xiaohongshu `__INITIAL_STATE__`
+    and Kuaishou `__APOLLO_STATE__` straight from the server-rendered HTML, with
+    no browser and no JavaScript execution.
+  - New `SsrAdapter` (score 175) fetches the share document over plain httpx
+    with a browser-like UA and reuses the existing pure note/photo parsers and
+    the browser adapter's chunked streamer. It claims only Xiaohongshu/Kuaishou
+    and ranks below f2 (200), above gallery-dl (150), until a residential-network
+    success path is verified.
+  - Evidence first: datacenter-IP probes showed Douyin SSR is an anti-bot shell,
+    Xiaohongshu redirects to a login shell and Kuaishou ships only UI config
+    (no `VisionVideoDetailPhoto`). Shell/risk documents therefore carry no detail,
+    the extractor returns None and the adapter raises `AdapterStale` rather than
+    guessing. Live runs confirm the f2 -> ssr -> CLI fallback degrades honestly.
+  - New `MEDIAVAULT_SSR_TIMEOUT_MS` (default 20000) bounds the HTML fetch.
 - **M3 local media intelligence, fully offline and key-free:**
   - Scene-cut-aware keyframes: `MEDIAVAULT_KEYFRAME_MODE=hybrid|scene` runs
     ffmpeg scene detection and merges cuts with uniform anchors inside the same

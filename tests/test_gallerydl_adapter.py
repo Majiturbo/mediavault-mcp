@@ -293,8 +293,10 @@ def test_registry_falls_through_when_gallerydl_stale(tmp_path, monkeypatch):
     assert resource.fallback_chain == ["gallery-dl", "yt-dlp"]
 
 
-def test_default_registry_orders_three_adapters(tmp_path):
+def test_default_registry_orders_adapters_with_ssr(tmp_path):
     from mediavault.adapters.registry import build_default_registry
     reg = build_default_registry(make_config(tmp_path))
     url = canonicalize("https://www.xiaohongshu.com/explore/abc")
-    assert [a.name for a in reg.chain_for(url)] == ["f2", "gallery-dl", "yt-dlp"]
+    # binary-free SSR (175) slots between f2 (200) and gallery-dl (150)
+    assert [a.name for a in reg.chain_for(url)] == [
+        "f2", "ssr", "gallery-dl", "yt-dlp"]

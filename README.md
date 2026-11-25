@@ -38,10 +38,11 @@ flowchart LR
     B --> C[Scored Adapter Registry]
     C --> D0["local browser · 220 (opt-in)<br/>clears JS-VM challenge, Douyin/XHS/Kuaishou"]
     C --> D1["f2 · score 200<br/>Douyin / XHS / Kuaishou / TikTok"]
+    C --> D1b["SSR fetch · 175<br/>binary-free, XHS/Kuaishou hydrated state"]
     C --> D2["gallery-dl · 150<br/>image sets"]
     C --> D3["yt-dlp · 100<br/>1800+ sites"]
     D0 -. AdapterStale .-> D1
-    D1 -. AdapterStale .-> D2 -. AdapterStale .-> D3
+    D1 -. AdapterStale .-> D1b -. AdapterStale .-> D2 -. AdapterStale .-> D3
     B --> E[Key-free Evidence Pipeline]
     E --> Gf[ffmpeg keyframes]
     E --> Gw[faster-whisper on-device ASR]
@@ -103,10 +104,19 @@ JS-VM challenge resolve on its own, reads the platform detail from inside the
 page (Douyin detail API / Xiaohongshu hydrated note state / Kuaishou Apollo
 cache; external clients are rejected even with the full cookie jar), and streams
 the signed media URL directly. Playwright missing or the switch off simply falls
-through to the f2 → gallery-dl → yt-dlp chain. On a datacenter IP, Xiaohongshu
-risk control can return a `300012 network risk` page and Kuaishou a bare
-`{"result": 2}` body with no hydrated state; the adapter then reports an honest
-Stale marker and falls through rather than guessing.
+through to the f2 → SSR → gallery-dl → yt-dlp chain. On a datacenter IP,
+Xiaohongshu risk control can return a `300012 network risk` page and Kuaishou a
+bare `{"result": 2}` body with no hydrated state; the adapter then reports an
+honest Stale marker and falls through rather than guessing.
+
+The always-on **SSR adapter** (score 175) is the lightweight, binary-free path:
+it requests the share document with a browser-like User-Agent and parses state
+already embedded in the server-rendered HTML (`__INITIAL_STATE__` for
+Xiaohongshu, `__APOLLO_STATE__` for Kuaishou) without launching Chromium or
+executing JavaScript. On a trusted residential network that state can hold the
+detail object before any script runs; on shell/risk pages it contains no detail
+and the adapter raises Stale. It deliberately stays below f2 (200) until a live
+residential success path is verified.
 
 ## 🛠️ The seven tools
 
@@ -130,8 +140,8 @@ single-resource (its images belong to one clip) and reports `urls_detected` /
 | Platform | Video | Image sets | Primary adapter |
 |---|:---:|:---:|---|
 | Douyin (抖音) | ✅ | ✅ | local browser (opt-in) → f2 → yt-dlp |
-| Kuaishou (快手) | ✅ | — | local browser (opt-in) → f2 → yt-dlp fallback |
-| Xiaohongshu (小红书) | ✅ | ✅ | local browser (opt-in) → f2 → gallery-dl → yt-dlp |
+| Kuaishou (快手) | ✅ | — | local browser (opt-in) → f2 → SSR → yt-dlp fallback |
+| Xiaohongshu (小红书) | ✅ | ✅ | local browser (opt-in) → f2 → SSR → gallery-dl → yt-dlp |
 | TikTok, Weibo (微博), Bilibili (B站) | ✅ | partial | f2 → yt-dlp |
 | YouTube, X/Twitter, Vimeo, Reddit | ✅ | — | yt-dlp (native clean streams) |
 | Instagram, Pinterest | ✅ | ✅ | gallery-dl → yt-dlp |
@@ -191,6 +201,7 @@ All settings come from environment variables or `.env` (see
 | `MEDIAVAULT_BROWSER_ENGINE` | `chromium` | `chromium` / `firefox` / `webkit` |
 | `MEDIAVAULT_BROWSER_HEADLESS` | `true` | `false` shows the browser window for manual challenge checks |
 | `MEDIAVAULT_BROWSER_TIMEOUT_MS` | `30000` | Challenge readiness and CDN download timeout |
+| `MEDIAVAULT_SSR_TIMEOUT_MS` | `20000` | Timeout for the binary-free SSR HTML fetch |
 | `MEDIAVAULT_ASR_BACKEND` | `openai` | `openai` (hosted) / `local` (faster-whisper) / `off` |
 | `MEDIAVAULT_WHISPER_MODEL` / `_DEVICE` | `base` / `cpu` | Local ASR size and device (cpu/mps/cuda) |
 | `MEDIAVAULT_KEYFRAME_MAX` / `_WIDTH` | `8` / `768` | Frame budget and downscale width |
@@ -208,13 +219,14 @@ Downloads land in `~/MediaVault/<platform>/<canonical_id>/` alongside
 2. **Degrade honestly, per stage.** Every adapter failure, skipped media stage and ignored cookie file is surfaced as a marker or note — never hidden.
 3. **No-watermark means source-native, not "removed".** We never crop or blur; unverifiable streams stay `unknown`.
 4. **Credentials stay local.** No third-party parser keys, no telemetry, no credentials in URLs, logs or caches.
-5. **Test the seams, mock the world.** 326 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests (including scene detection) run when ffmpeg is present and skip themselves otherwise.
+5. **Test the seams, mock the world.** 348 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests (including scene detection) run when ffmpeg is present and skip themselves otherwise.
 
 ## 🗺️ Roadmap
 
 - **Shipped:** ffmpeg scene-cut-aware keyframes (`hybrid` / `scene`) and dependency-free speaker turn labeling, both key-free and fully offline.
 - **Shipped (M4):** opt-in local-browser adapter that clears the Douyin/Xiaohongshu/Kuaishou JS-VM challenge anonymously and reads the signed media in-page — Douyin verified end-to-end on a real share link without any account login; Xiaohongshu (note state) and Kuaishou (Apollo cache) are parsed defensively and degrade honestly on network risk control.
-- **Next:** self-built SSR adapters for CN platforms, then embedding-based voiceprint diarization behind the same `Diarizer` interface.
+- **Shipped (SSR):** a binary-free SSR adapter (score 175) that fetches the share document over plain HTTP and parses hydrated Xiaohongshu/Kuaishou state without launching a browser; shell/risk pages raise an honest Stale marker. It ranks below f2 until a residential-network success path is verified.
+- **Next:** embedding-based voiceprint diarization behind the same `Diarizer` interface, and live residential-network calibration of the XHS/Kuaishou SSR and browser paths.
 - **Always:** keeping the adapter chain and evidence schema stable while platforms drift.
 
 ## 🧪 Development

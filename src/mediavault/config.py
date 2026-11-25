@@ -31,6 +31,8 @@ DEFAULT_BROWSER_BOOTSTRAP = "off"  # off | on
 DEFAULT_BROWSER_ENGINE = "chromium"  # chromium | firefox | webkit
 DEFAULT_BROWSER_HEADLESS = True
 DEFAULT_BROWSER_TIMEOUT_MS = 30000
+# Self-built server-side-render fetch (no browser); bounded HTTP read timeout.
+DEFAULT_SSR_TIMEOUT_MS = 20000
 
 
 def _load_dotenv(path: Path) -> dict[str, str]:
@@ -147,6 +149,8 @@ class Config:
     browser_engine: str  # chromium | firefox | webkit
     browser_headless: bool
     browser_timeout_ms: int
+    # Timeout for the binary-free SSR HTML fetch used by the SSR adapter.
+    ssr_timeout_ms: int
 
     @classmethod
     def load(cls, environ: dict[str, str] | None = None) -> Config:
@@ -230,6 +234,9 @@ class Config:
             ),
             browser_timeout_ms=_resolve_int(
                 env, dotenv, "MEDIAVAULT_BROWSER_TIMEOUT_MS", DEFAULT_BROWSER_TIMEOUT_MS
+            ),
+            ssr_timeout_ms=_resolve_int(
+                env, dotenv, "MEDIAVAULT_SSR_TIMEOUT_MS", DEFAULT_SSR_TIMEOUT_MS
             ),
         )
 
