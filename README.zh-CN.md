@@ -33,9 +33,11 @@ Whisper），再以 MCP 内容块返回，**让你已经在跑的智能体负责
 flowchart LR
     A[AI 智能体 / MCP 客户端] -->|stdio JSON-RPC| B[MediaVault MCP 服务器]
     B --> C[带打分的适配器注册表]
+    C --> D0["本地浏览器 · 220（可选开启）<br/>过 JS-VM 挑战，抖音"]
     C --> D1["f2 · 分数 200<br/>抖音 / 小红书 / 快手 / TikTok"]
     C --> D2["gallery-dl · 150<br/>图集帖子"]
     C --> D3["yt-dlp · 100<br/>1800+ 站点"]
+    D0 -. AdapterStale .-> D1
     D1 -. AdapterStale .-> D2 -. AdapterStale .-> D3
     B --> E[无密钥取证流水线]
     E --> Gf[ffmpeg 抽关键帧]
@@ -82,12 +84,21 @@ uv run python -m mediavault
 }
 ```
 
-可选后端会在 PATH 上自动探测——两个都不装、只装一个、全装都行：
+可选后端会在 PATH 上自动探测——不装、只装一个、全装都行：
 
 ```bash
 pipx install f2           # 抖音 / 小红书 / 快手 / TikTok / 微博 / B站 一等公民支持
 pipx install gallery-dl   # 图集帖子（小红书、Instagram、Pinterest、微博）
+
+# M4：用本地真实浏览器过 JS-VM 挑战（抖音），全程匿名
+uv pip install -e ".[browser]" && playwright install chromium
+export MEDIAVAULT_BROWSER_BOOTSTRAP=on
 ```
+
+浏览器适配器绝不登录账号：它启动本地 Playwright 浏览器，让 JS-VM 挑战自行
+通过，然后在页面内部调用详情接口（外部客户端即使带着完整 Cookie 也会被拒），
+再直接下载带签名的 CDN 地址。未安装 Playwright 或开关关闭时，自动回退到
+f2 → gallery-dl → yt-dlp 链路。
 
 ## 🛠️ 七个工具
 
@@ -110,7 +121,8 @@ pipx install gallery-dl   # 图集帖子（小红书、Instagram、Pinterest、�
 
 | 平台 | 视频 | 图集 | 首选适配器 |
 |---|:---:|:---:|---|
-| 抖音、快手 | ✅ | — | f2 → 回退 yt-dlp |
+| 抖音 | ✅ | ✅ | 本地浏览器（可选开启）→ f2 → 回退 yt-dlp |
+| 快手 | ✅ | — | f2 → 回退 yt-dlp |
 | 小红书 | ✅ | ✅ | f2 → gallery-dl → yt-dlp |
 | TikTok、微博、B站 | ✅ | 部分 | f2 → yt-dlp |
 | YouTube、X/Twitter、Vimeo、Reddit | ✅ | — | yt-dlp（原生干净流） |
@@ -163,6 +175,10 @@ MEDIAVAULT_WHISPER_DEVICE=mps                # CI/Linux 用 cpu · Apple 芯片�
 | `MEDIAVAULT_COOKIES_FILE` | — | Netscape 格式 cookies.txt，使用前校验，坏路径带告警跳过 |
 | `MEDIAVAULT_COOKIES_BROWSER` | — | 复用已登录浏览器（chrome/firefox/...） |
 | `MEDIAVAULT_F2_BIN` / `MEDIAVAULT_GALLERYDL_BIN` | `f2` / `gallery-dl` | 覆盖可选 CLI 路径 |
+| `MEDIAVAULT_BROWSER_BOOTSTRAP` | `off` | 设为 `on` 开启本地 Playwright 过挑战适配器（需安装 `browser` 扩展） |
+| `MEDIAVAULT_BROWSER_ENGINE` | `chromium` | `chromium` / `firefox` / `webkit` |
+| `MEDIAVAULT_BROWSER_HEADLESS` | `true` | 设为 `false` 显示浏览器窗口，便于人工查看挑战 |
+| `MEDIAVAULT_BROWSER_TIMEOUT_MS` | `30000` | 挑战就绪与 CDN 下载的超时（毫秒） |
 | `MEDIAVAULT_ASR_BACKEND` | `openai` | `openai`（托管）/ `local`（faster-whisper）/ `off` |
 | `MEDIAVAULT_WHISPER_MODEL` / `_DEVICE` | `base` / `cpu` | 本地转写模型尺寸与设备（cpu/mps/cuda） |
 | `MEDIAVAULT_KEYFRAME_MAX` / `_WIDTH` | `8` / `768` | 关键帧数量上限与降采样宽度 |
@@ -180,12 +196,13 @@ MEDIAVAULT_WHISPER_DEVICE=mps                # CI/Linux 用 cpu · Apple 芯片�
 2. **逐阶段诚实降级。** 每次适配器失败、每个被跳过的媒体阶段、每个被忽略的 Cookie 文件，都会以标记或备注呈现，绝不隐藏。
 3. **无水印指的是源头原生，而非“已移除”。** 我们从不裁剪或涂抹；无法核实的流保持 `unknown`。
 4. **凭证不出本机。** 不内置第三方解析 Key、无遥测，凭证不进 URL、日志或缓存。
-5. **测接缝、模拟外部世界。** 261 个离线测试做到语句与分支 100% 覆盖；真实 ffmpeg 冒烟测试（含场景检测）在 ffmpeg 存在时运行，否则自动跳过。
+5. **测接缝、模拟外部世界。** 298 个离线测试做到语句与分支 100% 覆盖；真实 ffmpeg 冒烟测试（含场景检测）在 ffmpeg 存在时运行，否则自动跳过。
 
 ## 🗺️ 路线图
 
 - **已交付：** 基于 ffmpeg 场景切换的关键帧（`hybrid` / `scene`）与零依赖说话人话轮标注，均无需密钥、完全离线。
-- **下一步：** 面向国内平台的自建 SSR 适配器（对照真实页面结构校准），随后在同一个 `Diarizer` 接口后接入基于声纹嵌入的真实说话人分离。
+- **已交付（M4）：** 可选开启的本地浏览器适配器，匿名通过抖音 JS-VM 挑战并在页面内取签名流；已用真实分享链接端到端验证，全程无账号登录。
+- **下一步：** 把页面内适配器扩展到小红书 / 快手，建设国内平台自建 SSR 适配器，随后在同一个 `Diarizer` 接口后接入基于声纹嵌入的真实说话人分离。
 - **长期：** 在平台不断改版的同时，保持适配器链与证据结构稳定。
 
 ## 🧪 开发

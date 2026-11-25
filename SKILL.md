@@ -30,8 +30,11 @@ requests to re-upload/redistribute downloaded content.
    - speed: smallest file, fastest
    - Image-set posts (content_type=image_set, e.g. Xiaohongshu/Instagram)
      return every source image; extraction walks the optional chain
-     f2 > gallery-dl > yt-dlp and transparently falls back when a CLI is
-     absent or stale, surfaced via the degraded flag.
+     local browser (Douyin, when MEDIAVAULT_BROWSER_BOOTSTRAP=on) > f2 >
+     gallery-dl > yt-dlp and transparently falls back when a CLI/browser is
+     absent or stale, surfaced via the degraded flag. The browser path clears
+     the JS-VM challenge anonymously (no login) and fetches the signed stream
+     in-page; its note reads "browser:anonymous in-page detail fetch".
 3. User wants a summary / 文案 / 要点:
    - Prefer analyze (no API key needed). It returns one JSON evidence block
      (title, author, caption, timestamped transcript, pipeline status)
@@ -99,4 +102,7 @@ be on PATH for audio/frame/scene extraction; on-device ASR additionally needs
 uv pip install -e ".[local-asr]". The optional f2 and gallery-dl CLIs are
 auto-detected on PATH (override with MEDIAVAULT_F2_BIN /
 MEDIAVAULT_GALLERYDL_BIN); neither is required, and both honor the proxy /
-cookies settings when present.
+cookies settings when present. The optional browser path needs
+uv pip install -e ".[browser]" plus `playwright install chromium` and is off by
+default; MEDIAVAULT_BROWSER_ENGINE/HEADLESS/TIMEOUT_MS tune it, and a missing
+Playwright or uncleared challenge degrades to the CLI chain via AdapterStale.

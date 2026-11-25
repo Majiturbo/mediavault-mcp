@@ -36,9 +36,11 @@ required.
 flowchart LR
     A[AI Agent / MCP Client] -->|stdio JSON-RPC| B[MediaVault MCP Server]
     B --> C[Scored Adapter Registry]
+    C --> D0["local browser · 220 (opt-in)<br/>clears JS-VM challenge, Douyin"]
     C --> D1["f2 · score 200<br/>Douyin / XHS / Kuaishou / TikTok"]
     C --> D2["gallery-dl · 150<br/>image sets"]
     C --> D3["yt-dlp · 100<br/>1800+ sites"]
+    D0 -. AdapterStale .-> D1
     D1 -. AdapterStale .-> D2 -. AdapterStale .-> D3
     B --> E[Key-free Evidence Pipeline]
     E --> Gf[ffmpeg keyframes]
@@ -85,12 +87,22 @@ Point any MCP client at it (stdio):
 }
 ```
 
-Optional backends are auto-detected on PATH — install neither, one, or both:
+Optional backends are auto-detected on PATH — install none, one, or all:
 
 ```bash
 pipx install f2           # first-class Douyin/Xiaohongshu/Kuaishou/TikTok/Weibo/Bilibili
 pipx install gallery-dl   # image-set posts (Xiaohongshu, Instagram, Pinterest, Weibo)
+
+# M4: local real-browser path for JS-VM challenges (Douyin), fully anonymous
+uv pip install -e ".[browser]" && playwright install chromium
+export MEDIAVAULT_BROWSER_BOOTSTRAP=on
 ```
+
+The browser adapter never logs in. It opens a local Playwright browser, lets the
+JS-VM challenge resolve on its own, calls the detail API from inside the page
+(external clients are rejected even with the full cookie jar), and streams the
+signed CDN URL directly. Playwright missing or the switch off simply falls
+through to the f2 → gallery-dl → yt-dlp chain.
 
 ## 🛠️ The seven tools
 
@@ -113,7 +125,8 @@ single-resource (its images belong to one clip) and reports `urls_detected` /
 
 | Platform | Video | Image sets | Primary adapter |
 |---|:---:|:---:|---|
-| Douyin (抖音), Kuaishou (快手) | ✅ | — | f2 → yt-dlp fallback |
+| Douyin (抖音) | ✅ | ✅ | local browser (opt-in) → f2 → yt-dlp |
+| Kuaishou (快手) | ✅ | — | f2 → yt-dlp fallback |
 | Xiaohongshu (小红书) | ✅ | ✅ | f2 → gallery-dl → yt-dlp |
 | TikTok, Weibo (微博), Bilibili (B站) | ✅ | partial | f2 → yt-dlp |
 | YouTube, X/Twitter, Vimeo, Reddit | ✅ | — | yt-dlp (native clean streams) |
@@ -170,6 +183,10 @@ All settings come from environment variables or `.env` (see
 | `MEDIAVAULT_COOKIES_FILE` | — | Netscape cookies.txt, validated before use; bad paths skipped with a warning |
 | `MEDIAVAULT_COOKIES_BROWSER` | — | Reuse a logged-in browser (chrome/firefox/...) |
 | `MEDIAVAULT_F2_BIN` / `MEDIAVAULT_GALLERYDL_BIN` | `f2` / `gallery-dl` | Override optional CLI paths |
+| `MEDIAVAULT_BROWSER_BOOTSTRAP` | `off` | `on` enables the local Playwright challenge-clearing adapter (needs the `browser` extra) |
+| `MEDIAVAULT_BROWSER_ENGINE` | `chromium` | `chromium` / `firefox` / `webkit` |
+| `MEDIAVAULT_BROWSER_HEADLESS` | `true` | `false` shows the browser window for manual challenge checks |
+| `MEDIAVAULT_BROWSER_TIMEOUT_MS` | `30000` | Challenge readiness and CDN download timeout |
 | `MEDIAVAULT_ASR_BACKEND` | `openai` | `openai` (hosted) / `local` (faster-whisper) / `off` |
 | `MEDIAVAULT_WHISPER_MODEL` / `_DEVICE` | `base` / `cpu` | Local ASR size and device (cpu/mps/cuda) |
 | `MEDIAVAULT_KEYFRAME_MAX` / `_WIDTH` | `8` / `768` | Frame budget and downscale width |
@@ -187,12 +204,13 @@ Downloads land in `~/MediaVault/<platform>/<canonical_id>/` alongside
 2. **Degrade honestly, per stage.** Every adapter failure, skipped media stage and ignored cookie file is surfaced as a marker or note — never hidden.
 3. **No-watermark means source-native, not "removed".** We never crop or blur; unverifiable streams stay `unknown`.
 4. **Credentials stay local.** No third-party parser keys, no telemetry, no credentials in URLs, logs or caches.
-5. **Test the seams, mock the world.** 261 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests (including scene detection) run when ffmpeg is present and skip themselves otherwise.
+5. **Test the seams, mock the world.** 298 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests (including scene detection) run when ffmpeg is present and skip themselves otherwise.
 
 ## 🗺️ Roadmap
 
 - **Shipped:** ffmpeg scene-cut-aware keyframes (`hybrid` / `scene`) and dependency-free speaker turn labeling, both key-free and fully offline.
-- **Next:** self-built SSR adapters for CN platforms (calibrated against live page shapes), then embedding-based voiceprint diarization behind the same `Diarizer` interface.
+- **Shipped (M4):** opt-in local-browser adapter that clears the Douyin JS-VM challenge anonymously and fetches the signed stream in-page — verified end-to-end on a real share link without any account login.
+- **Next:** extend the in-page adapter to Xiaohongshu/Kuaishou, self-built SSR adapters for CN platforms, then embedding-based voiceprint diarization behind the same `Diarizer` interface.
 - **Always:** keeping the adapter chain and evidence schema stable while platforms drift.
 
 ## 🧪 Development

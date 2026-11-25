@@ -113,3 +113,19 @@ def test_default_registry_advertises_platforms():
     assert "douyin" in adapter.platforms
     assert "unknown" in adapter.platforms
     assert "video" in adapter.capabilities
+
+
+def test_default_registry_browser_bootstrap_opt_in(tmp_path):
+    off = build_default_registry(Config.load({"MEDIAVAULT_HOME": str(tmp_path / "a")}))
+    on = build_default_registry(Config.load({
+        "MEDIAVAULT_HOME": str(tmp_path / "b"),
+        "MEDIAVAULT_BROWSER_BOOTSTRAP": "on",
+    }))
+    url = canonicalize("https://v.douyin.com/x/")
+    off_names = [a.name for a in off.chain_for(url)]
+    on_names = [a.name for a in on.chain_for(url)]
+    assert "browser" not in off_names
+    assert on_names[0] == "browser"
+    # browser only claims JS-challenge platforms, YouTube stays yt-dlp first
+    youtube = canonicalize("https://www.youtube.com/watch?v=1")
+    assert on.chain_for(youtube)[0].name == "yt-dlp"

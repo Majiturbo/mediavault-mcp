@@ -26,6 +26,11 @@ DEFAULT_DIARIZATION = "off"  # off | heuristic
 DEFAULT_DIARIZE_GAP_MS = 700  # pause length that starts a new speaker turn
 DEFAULT_F2_BIN = "f2"  # optional f2 CLI; absence triggers yt-dlp fallback
 DEFAULT_GALLERYDL_BIN = "gallery-dl"  # optional image-set CLI; absence -> fallback
+# M4 local real-browser bootstrap for JS-VM challenge platforms (optional).
+DEFAULT_BROWSER_BOOTSTRAP = "off"  # off | on
+DEFAULT_BROWSER_ENGINE = "chromium"  # chromium | firefox | webkit
+DEFAULT_BROWSER_HEADLESS = True
+DEFAULT_BROWSER_TIMEOUT_MS = 30000
 
 
 def _load_dotenv(path: Path) -> dict[str, str]:
@@ -98,6 +103,18 @@ def _resolve_choice(
     return raw if raw in allowed else default
 
 
+def _resolve_bool(
+    env: dict[str, str],
+    dotenv: dict[str, str],
+    key: str,
+    default: bool,
+) -> bool:
+    raw = _resolve(env, dotenv, key)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Config:
     home: Path
@@ -125,6 +142,11 @@ class Config:
     f2_bin: str
     # Optional external gallery-dl CLI for image sets.
     gallerydl_bin: str
+    # M4 optional local browser that clears JS-VM challenges for anonymous cookies.
+    browser_bootstrap: str  # off | on
+    browser_engine: str  # chromium | firefox | webkit
+    browser_headless: bool
+    browser_timeout_ms: int
 
     @classmethod
     def load(cls, environ: dict[str, str] | None = None) -> Config:
@@ -194,6 +216,20 @@ class Config:
             gallerydl_bin=(
                 _resolve(env, dotenv, "MEDIAVAULT_GALLERYDL_BIN", DEFAULT_GALLERYDL_BIN)
                 or DEFAULT_GALLERYDL_BIN
+            ),
+            browser_bootstrap=_resolve_choice(
+                env, dotenv, "MEDIAVAULT_BROWSER_BOOTSTRAP",
+                {"off", "on"}, DEFAULT_BROWSER_BOOTSTRAP,
+            ),
+            browser_engine=_resolve_choice(
+                env, dotenv, "MEDIAVAULT_BROWSER_ENGINE",
+                {"chromium", "firefox", "webkit"}, DEFAULT_BROWSER_ENGINE,
+            ),
+            browser_headless=_resolve_bool(
+                env, dotenv, "MEDIAVAULT_BROWSER_HEADLESS", DEFAULT_BROWSER_HEADLESS
+            ),
+            browser_timeout_ms=_resolve_int(
+                env, dotenv, "MEDIAVAULT_BROWSER_TIMEOUT_MS", DEFAULT_BROWSER_TIMEOUT_MS
             ),
         )
 

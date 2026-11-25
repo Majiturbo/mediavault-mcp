@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 
 from mediavault.adapters.base import Adapter, AdapterError, AdapterStale
+from mediavault.adapters.browser_adapter import BrowserYtDlpAdapter
 from mediavault.adapters.f2_adapter import F2Adapter
 from mediavault.adapters.gallerydl_adapter import GalleryDLAdapter
 from mediavault.adapters.ytdlp_adapter import YtDlpAdapter
@@ -61,7 +62,17 @@ def build_default_registry(config: Config) -> AdapterRegistry:
     # registry transparently falls through to yt-dlp, the generic 1800+ site
     # workhorse. Class attributes are passed explicitly because the dataclass
     # __init__ would otherwise shadow them with the base field defaults.
-    return AdapterRegistry([
+    adapters: list[Adapter] = []
+    # Opt-in M4 browser bootstrap ranks above every CLI adapter for the
+    # JS-VM challenge platforms; absent Playwright degrades via AdapterStale.
+    if config.browser_bootstrap == "on":
+        adapters.append(BrowserYtDlpAdapter(
+            config=config,
+            name="browser",
+            platforms=BrowserYtDlpAdapter.platforms,
+            capabilities=BrowserYtDlpAdapter.capabilities,
+        ))
+    adapters.extend([
         F2Adapter(
             config=config,
             name="f2",
@@ -81,3 +92,4 @@ def build_default_registry(config: Config) -> AdapterRegistry:
             capabilities=YtDlpAdapter.capabilities,
         ),
     ])
+    return AdapterRegistry(adapters)

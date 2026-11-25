@@ -10,6 +10,8 @@ dist/
 .env
 /output/
 /MediaVault/
+/MediaVault-*/
+/logs/
 
 # Tooling caches & artifacts
 .coverage
