@@ -48,9 +48,11 @@ class FakeBootstrapper:
         self.result = result
         self.error = error
         self.calls = []
+        self.expressions = []
 
     async def evaluate_after_ready(self, platform, url, expression, arg=None):
         self.calls.append((platform, url))
+        self.expressions.append(expression)
         if self.error is not None:
             raise self.error
         return self.result
@@ -66,7 +68,8 @@ def test_score_and_support(tmp_path):
     xhs = canonicalize("https://www.xiaohongshu.com/explore/y")
     youtube = canonicalize("https://www.youtube.com/watch?v=1")
     assert adapter.match_score(douyin) == 220 and adapter.supports(douyin)
-    assert not adapter.supports(xhs) and not adapter.supports(youtube)
+    assert adapter.match_score(xhs) == 220 and adapter.supports(xhs)
+    assert not adapter.supports(youtube)
     assert adapter.match_score(youtube) == 10
 
 
@@ -77,6 +80,8 @@ def test_probe_parses_in_page_aweme_detail(tmp_path, monkeypatch):
     url = canonicalize("https://v.douyin.com/x/")
     resource = run(adapter.probe(url))
     assert bs.calls == [("douyin", url.raw_url)]
+    from mediavault.platform_aweme import AWEME_DETAIL_JS
+    assert bs.expressions == [AWEME_DETAIL_JS]
     assert resource.adapter_used == "browser"
     assert resource.canonical_id == "douyin:7693902023082825664"
     assert resource.content_type == "video" and resource.title == "入门 AI Agent 教程"
@@ -192,3 +197,48 @@ def test_stream_writes_chunked_bytes(tmp_path):
     run(BrowserYtDlpAdapter._stream(client, item, target))
     assert target.read_bytes() == b"abcdef"
     assert client.method == "GET" and client.url == item.url
+
+XHS_NOTE = {
+    "noteId": "6affb9ba",
+    "title": "广州胶片写真",
+    "desc": "互免约拍",
+    "user": {"userId": "u1", "nickname": "摄影师"},
+    "imageList": [
+        {"urlDefault": "https://ci/a.jpg", "width": 1080, "height": 1440},
+        {"urlDefault": "https://ci/b.jpg"},
+    ],
+}
+
+
+def test_probe_dispatches_xhs_note_parser(tmp_path, monkeypatch):
+    adapter = make_adapter(tmp_path)
+    bs = FakeBootstrapper(result=XHS_NOTE)
+    monkeypatch.setattr("mediavault.adapters.browser_adapter.build_bootstrapper", lambda c: bs)
+    url = canonicalize("https://www.xiaohongshu.com/explore/y?xsec_token=t")
+    resource = run(adapter.probe(url))
+    from mediavault.platform_xhs import XHS_NOTE_JS
+    assert bs.calls == [("xiaohongshu", url.raw_url)]
+    assert bs.expressions == [XHS_NOTE_JS]
+    assert resource.canonical_id == "xhs:6affb9ba"
+    assert resource.content_type == "image_set" and len(resource.items) == 2
+    assert resource.author.name == "摄影师" and resource.adapter_used == "browser"
+
+
+def test_probe_xhs_risk_control_returns_null_is_stale(tmp_path, monkeypatch):
+    # risk/login page has no __INITIAL_STATE__ -> in-page script returns None
+    adapter = make_adapter(tmp_path)
+    monkeypatch.setattr("mediavault.adapters.browser_adapter.build_bootstrapper",
+                        lambda c: FakeBootstrapper(result=None))
+    url = canonicalize("https://www.xiaohongshu.com/explore/y?xsec_token=t")
+    with pytest.raises(AdapterStale, match="note missing"):
+        run(adapter.probe(url))
+
+def test_unmapped_platform_degrades_to_stale(tmp_path):
+    # kuaishou is not mapped to an in-page extractor yet; both the probe guard
+    # and the direct fetch guard must raise Stale instead of crashing
+    adapter = make_adapter(tmp_path)
+    url = canonicalize("https://www.kuaishou.com/short-video/x")
+    with pytest.raises(AdapterStale, match="not mapped"):
+        run(adapter.probe(url))
+    with pytest.raises(AdapterStale, match="not mapped"):
+        run(adapter._fetch_detail(url))

@@ -23,11 +23,17 @@ adheres to semantic versioning once 1.0.0 is tagged.
     login), runs an in-page `fetch` of the detail API, parses `aweme_detail`
     into a `Resource` via a pure, offline-tested parser, and streams the signed
     CDN URL directly over httpx. Only cookie names are ever logged.
-  - A readiness gate waits for the decisive `s_v_web_id` session cookie and a
-    stable cookie set before acting, so a partial early session is never used.
-  - The browser adapter ranks first (220) for Douyin only while enabled;
-    missing Playwright, an uncleared challenge or the off switch all degrade
-    through `AdapterStale` into the unchanged f2 -> gallery-dl -> yt-dlp chain.
+  - A readiness gate waits for the decisive `s_v_web_id` session cookie (Douyin)
+    or anonymous `a1` device cookie (Xiaohongshu) and a stable cookie set before
+    acting, so a partial early session is never used.
+  - Platform dispatch maps Douyin (`aweme_detail`) and Xiaohongshu (hydrated
+    `__INITIAL_STATE__` note, images and h264 video) through pure, offline-tested
+    parsers. On Xiaohongshu network risk control (`300012`) the page has no note
+    state, so the adapter reports an honest Stale marker instead of guessing.
+  - The browser adapter ranks first (220) for Douyin/Xiaohongshu only while
+    enabled; missing Playwright, an uncleared challenge or the off switch all
+    degrade through `AdapterStale` into the unchanged f2 -> gallery-dl -> yt-dlp
+    chain.
 - **M3 local media intelligence, fully offline and key-free:**
   - Scene-cut-aware keyframes: `MEDIAVAULT_KEYFRAME_MODE=hybrid|scene` runs
     ffmpeg scene detection and merges cuts with uniform anchors inside the same

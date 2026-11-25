@@ -3,10 +3,10 @@
 Douyin authorizes its detail API only for requests carrying the full browser
 environment (TLS/JS fingerprint plus ambient signing headers and cookies); a
 command-line client such as yt-dlp is rejected even when handed the complete
-cookie jar. This adapter runs an in-page fetch inside a local real browser
-(which executes the JS-VM challenge anonymously, with no login) and parses the
-returned aweme_detail. The signed CDN URL is then downloaded directly over
-httpx with browser-like headers.
+cookie jar. This adapter runs an in-page script inside a local real browser
+(which clears the JS-VM challenge anonymously, with no login): Douyin fetches
+its aweme detail API and Xiaohongshu reads the hydrated note state. The parsed
+media URLs are then downloaded directly over httpx with browser-like headers.
 
 Playwright missing, the opt-in switch off, or an uncleared challenge all raise
 AdapterStale so the registry falls through to f2/gallery-dl/yt-dlp unchanged.
@@ -27,11 +27,17 @@ from mediavault.browser_session import (
 from mediavault.models import MediaItem, Resource
 from mediavault.network import normalize_proxy
 from mediavault.platform_aweme import AWEME_DETAIL_JS, parse_aweme_detail
+from mediavault.platform_xhs import XHS_NOTE_JS, parse_xhs_note
 from mediavault.routing import CanonicalURL
 
-# Direct in-browser extraction is implemented for Douyin; other JS-challenge
-# platforms keep using the f2 -> gallery-dl -> yt-dlp chain until mapped.
-_BROWSER_PLATFORMS = frozenset({"douyin"})
+# Platform -> (in-page extraction script, pure parser). Each entry maps one
+# platform's authenticated in-page document to a normalized Resource; unmapped
+# platforms keep using the f2 -> gallery-dl -> yt-dlp chain.
+_PLATFORM_EXTRACTORS: dict[str, tuple[str, object]] = {
+    "douyin": (AWEME_DETAIL_JS, parse_aweme_detail),
+    "xiaohongshu": (XHS_NOTE_JS, parse_xhs_note),
+}
+_BROWSER_PLATFORMS = frozenset(_PLATFORM_EXTRACTORS)
 _BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -55,9 +61,13 @@ class BrowserYtDlpAdapter(Adapter):
         bootstrapper = build_bootstrapper(self.config)
         if bootstrapper is None:
             raise AdapterStale("browser bootstrap is disabled")
+        extractor = _PLATFORM_EXTRACTORS.get(url.platform)
+        if extractor is None:  # supports() normally prevents this
+            raise AdapterStale(f"browser extraction not mapped for {url.platform}")
+        expression, _parser = extractor
         try:
             return await bootstrapper.evaluate_after_ready(
-                url.platform, url.raw_url, AWEME_DETAIL_JS
+                url.platform, url.raw_url, expression
             )
         except BrowserUnavailable as exc:
             raise AdapterStale(f"browser unavailable: {exc}") from exc
@@ -65,8 +75,12 @@ class BrowserYtDlpAdapter(Adapter):
             raise AdapterStale(f"browser challenge not cleared: {exc}") from exc
 
     async def probe(self, url: CanonicalURL) -> Resource:
+        extractor = _PLATFORM_EXTRACTORS.get(url.platform)
+        if extractor is None:
+            raise AdapterStale(f"browser extraction not mapped for {url.platform}")
+        _expression, parser = extractor
         detail = await self._fetch_detail(url)
-        resource = parse_aweme_detail(detail, url.raw_url, self.name)
+        resource = parser(detail, url.raw_url, self.name)
         resource.notes.append(
             "browser:anonymous in-page detail fetch (no account login)"
         )

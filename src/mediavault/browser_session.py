@@ -30,6 +30,9 @@ _POLL_INTERVAL_MS = 500
 # session before the SPA finished its anonymous bootstrap.
 _READINESS_COOKIES: dict[str, frozenset[str]] = {
     "douyin": frozenset({"s_v_web_id"}),
+    # Xiaohongshu plants the anonymous device id "a1" on first paint; waiting
+    # for it avoids reading __INITIAL_STATE__ before the SPA hydrates.
+    "xiaohongshu": frozenset({"a1"}),
 }
 _INSTALL_HINT = 'install the extra with: pip install "mediavault-mcp[browser]"'
 

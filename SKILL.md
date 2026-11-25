@@ -30,11 +30,13 @@ requests to re-upload/redistribute downloaded content.
    - speed: smallest file, fastest
    - Image-set posts (content_type=image_set, e.g. Xiaohongshu/Instagram)
      return every source image; extraction walks the optional chain
-     local browser (Douyin, when MEDIAVAULT_BROWSER_BOOTSTRAP=on) > f2 >
-     gallery-dl > yt-dlp and transparently falls back when a CLI/browser is
-     absent or stale, surfaced via the degraded flag. The browser path clears
-     the JS-VM challenge anonymously (no login) and fetches the signed stream
-     in-page; its note reads "browser:anonymous in-page detail fetch".
+     local browser (Douyin/Xiaohongshu, when MEDIAVAULT_BROWSER_BOOTSTRAP=on)
+     > f2 > gallery-dl > yt-dlp and transparently falls back when a
+     CLI/browser is absent or stale, surfaced via the degraded flag. The
+     browser path clears the JS-VM challenge anonymously (no login) and reads
+     the signed media in-page; its note reads "browser:anonymous in-page
+     detail fetch". A Xiaohongshu 300012 network-risk page has no note state
+     and degrades honestly rather than returning guessed content.
 3. User wants a summary / 文案 / 要点:
    - Prefer analyze (no API key needed). It returns one JSON evidence block
      (title, author, caption, timestamped transcript, pipeline status)

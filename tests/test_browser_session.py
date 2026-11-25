@@ -162,13 +162,29 @@ def test_douyin_waits_for_readiness_cookie(tmp_path, monkeypatch):
 
 
 def test_platform_without_readiness_gate(tmp_path, monkeypatch):
+    # kuaishou has no readiness-cookie gate yet: any stable non-empty set passes
     cfg = make_config(tmp_path)
     page = FakePage([REAL_HTML])
-    cookies = [{"name": "web_session", "value": "v", "domain": ".xiaohongshu.com"}]
+    cookies = [{"name": "did", "value": "v", "domain": ".kuaishou.com"}]
     install_fake_playwright(monkeypatch, page, [cookies])
     result = run(PlaywrightBootstrapper(cfg).evaluate_after_ready(
-        "xiaohongshu", "https://www.xiaohongshu.com/explore/x", "return 1"))
+        "kuaishou", "https://www.kuaishou.com/short-video/x", "return 1"))
     assert result["aweme_detail"]["aweme_id"] == "1"
+
+
+def test_xiaohongshu_waits_for_a1_cookie(tmp_path, monkeypatch):
+    # first sample lacks the anonymous a1 device cookie; once it appears and
+    # the set stabilizes, evaluation proceeds
+    cfg = make_config(tmp_path)
+    page = FakePage([REAL_HTML])
+    partial = [{"name": "webId", "value": "w", "domain": ".xiaohongshu.com"}]
+    ready = partial + [
+        {"name": "a1", "value": "device", "domain": ".xiaohongshu.com"},
+    ]
+    install_fake_playwright(monkeypatch, page, [partial, ready])
+    result = run(PlaywrightBootstrapper(cfg).evaluate_after_ready(
+        "xiaohongshu", "https://www.xiaohongshu.com/explore/x", "return 1"))
+    assert result["aweme_detail"]["aweme_id"] == "1" and page.waits
 
 
 def test_timeout_raises_challenge_error(tmp_path, monkeypatch):
