@@ -36,7 +36,7 @@ required.
 flowchart LR
     A[AI Agent / MCP Client] -->|stdio JSON-RPC| B[MediaVault MCP Server]
     B --> C[Scored Adapter Registry]
-    C --> D0["local browser · 220 (opt-in)<br/>clears JS-VM challenge, Douyin/XHS"]
+    C --> D0["local browser · 220 (opt-in)<br/>clears JS-VM challenge, Douyin/XHS/Kuaishou"]
     C --> D1["f2 · score 200<br/>Douyin / XHS / Kuaishou / TikTok"]
     C --> D2["gallery-dl · 150<br/>image sets"]
     C --> D3["yt-dlp · 100<br/>1800+ sites"]
@@ -93,19 +93,20 @@ Optional backends are auto-detected on PATH — install none, one, or all:
 pipx install f2           # first-class Douyin/Xiaohongshu/Kuaishou/TikTok/Weibo/Bilibili
 pipx install gallery-dl   # image-set posts (Xiaohongshu, Instagram, Pinterest, Weibo)
 
-# M4: local real-browser path for JS-VM challenges (Douyin, Xiaohongshu), anonymous
+# M4: local real-browser path for JS-VM challenges (Douyin, Xiaohongshu, Kuaishou), anonymous
 uv pip install -e ".[browser]" && playwright install chromium
 export MEDIAVAULT_BROWSER_BOOTSTRAP=on
 ```
 
 The browser adapter never logs in. It opens a local Playwright browser, lets the
 JS-VM challenge resolve on its own, reads the platform detail from inside the
-page (Douyin detail API / Xiaohongshu hydrated note state; external clients are
-rejected even with the full cookie jar), and streams the signed media URL
-directly. Playwright missing or the switch off simply falls through to the
-f2 → gallery-dl → yt-dlp chain. On a datacenter IP, Xiaohongshu risk control can
-return a `300012 network risk` page with no note state; the adapter then reports
-an honest Stale marker and falls through rather than guessing.
+page (Douyin detail API / Xiaohongshu hydrated note state / Kuaishou Apollo
+cache; external clients are rejected even with the full cookie jar), and streams
+the signed media URL directly. Playwright missing or the switch off simply falls
+through to the f2 → gallery-dl → yt-dlp chain. On a datacenter IP, Xiaohongshu
+risk control can return a `300012 network risk` page and Kuaishou a bare
+`{"result": 2}` body with no hydrated state; the adapter then reports an honest
+Stale marker and falls through rather than guessing.
 
 ## 🛠️ The seven tools
 
@@ -129,7 +130,7 @@ single-resource (its images belong to one clip) and reports `urls_detected` /
 | Platform | Video | Image sets | Primary adapter |
 |---|:---:|:---:|---|
 | Douyin (抖音) | ✅ | ✅ | local browser (opt-in) → f2 → yt-dlp |
-| Kuaishou (快手) | ✅ | — | f2 → yt-dlp fallback |
+| Kuaishou (快手) | ✅ | — | local browser (opt-in) → f2 → yt-dlp fallback |
 | Xiaohongshu (小红书) | ✅ | ✅ | local browser (opt-in) → f2 → gallery-dl → yt-dlp |
 | TikTok, Weibo (微博), Bilibili (B站) | ✅ | partial | f2 → yt-dlp |
 | YouTube, X/Twitter, Vimeo, Reddit | ✅ | — | yt-dlp (native clean streams) |
@@ -207,13 +208,13 @@ Downloads land in `~/MediaVault/<platform>/<canonical_id>/` alongside
 2. **Degrade honestly, per stage.** Every adapter failure, skipped media stage and ignored cookie file is surfaced as a marker or note — never hidden.
 3. **No-watermark means source-native, not "removed".** We never crop or blur; unverifiable streams stay `unknown`.
 4. **Credentials stay local.** No third-party parser keys, no telemetry, no credentials in URLs, logs or caches.
-5. **Test the seams, mock the world.** 312 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests (including scene detection) run when ffmpeg is present and skip themselves otherwise.
+5. **Test the seams, mock the world.** 326 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests (including scene detection) run when ffmpeg is present and skip themselves otherwise.
 
 ## 🗺️ Roadmap
 
 - **Shipped:** ffmpeg scene-cut-aware keyframes (`hybrid` / `scene`) and dependency-free speaker turn labeling, both key-free and fully offline.
-- **Shipped (M4):** opt-in local-browser adapter that clears the Douyin/Xiaohongshu JS-VM challenge anonymously and reads the signed media in-page — Douyin verified end-to-end on a real share link without any account login; Xiaohongshu is parsed from hydrated note state and degrades honestly on network risk control.
-- **Next:** extend the in-page adapter to Kuaishou, self-built SSR adapters for CN platforms, then embedding-based voiceprint diarization behind the same `Diarizer` interface.
+- **Shipped (M4):** opt-in local-browser adapter that clears the Douyin/Xiaohongshu/Kuaishou JS-VM challenge anonymously and reads the signed media in-page — Douyin verified end-to-end on a real share link without any account login; Xiaohongshu (note state) and Kuaishou (Apollo cache) are parsed defensively and degrade honestly on network risk control.
+- **Next:** self-built SSR adapters for CN platforms, then embedding-based voiceprint diarization behind the same `Diarizer` interface.
 - **Always:** keeping the adapter chain and evidence schema stable while platforms drift.
 
 ## 🧪 Development

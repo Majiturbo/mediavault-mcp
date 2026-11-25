@@ -162,14 +162,27 @@ def test_douyin_waits_for_readiness_cookie(tmp_path, monkeypatch):
 
 
 def test_platform_without_readiness_gate(tmp_path, monkeypatch):
-    # kuaishou has no readiness-cookie gate yet: any stable non-empty set passes
+    # weibo has no readiness-cookie gate: any stable non-empty set passes
     cfg = make_config(tmp_path)
     page = FakePage([REAL_HTML])
-    cookies = [{"name": "did", "value": "v", "domain": ".kuaishou.com"}]
+    cookies = [{"name": "SUB", "value": "v", "domain": ".weibo.com"}]
     install_fake_playwright(monkeypatch, page, [cookies])
     result = run(PlaywrightBootstrapper(cfg).evaluate_after_ready(
-        "kuaishou", "https://www.kuaishou.com/short-video/x", "return 1"))
+        "weibo", "https://weibo.com/detail/1", "return 1"))
     assert result["aweme_detail"]["aweme_id"] == "1"
+
+
+def test_kuaishou_waits_for_did_cookie(tmp_path, monkeypatch):
+    # first sample lacks the anonymous did device cookie; once present and the
+    # set stabilizes, evaluation proceeds
+    cfg = make_config(tmp_path)
+    page = FakePage([REAL_HTML])
+    partial = [{"name": "kpn", "value": "web", "domain": ".kuaishou.com"}]
+    ready = partial + [{"name": "did", "value": "device", "domain": ".kuaishou.com"}]
+    install_fake_playwright(monkeypatch, page, [partial, ready])
+    result = run(PlaywrightBootstrapper(cfg).evaluate_after_ready(
+        "kuaishou", "https://www.kuaishou.com/short-video/x", "return 1"))
+    assert result["aweme_detail"]["aweme_id"] == "1" and page.waits
 
 
 def test_xiaohongshu_waits_for_a1_cookie(tmp_path, monkeypatch):

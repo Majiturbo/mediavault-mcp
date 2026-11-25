@@ -33,6 +33,9 @@ _READINESS_COOKIES: dict[str, frozenset[str]] = {
     # Xiaohongshu plants the anonymous device id "a1" on first paint; waiting
     # for it avoids reading __INITIAL_STATE__ before the SPA hydrates.
     "xiaohongshu": frozenset({"a1"}),
+    # Kuaishou sets the anonymous device id "did" before the Apollo cache
+    # hydrates; gating on it avoids reading an unhydrated short-video page.
+    "kuaishou": frozenset({"did"}),
 }
 _INSTALL_HINT = 'install the extra with: pip install "mediavault-mcp[browser]"'
 

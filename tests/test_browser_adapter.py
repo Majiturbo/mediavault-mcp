@@ -66,9 +66,11 @@ def test_score_and_support(tmp_path):
     adapter = make_adapter(tmp_path)
     douyin = canonicalize("https://v.douyin.com/x/")
     xhs = canonicalize("https://www.xiaohongshu.com/explore/y")
+    ks = canonicalize("https://www.kuaishou.com/short-video/z")
     youtube = canonicalize("https://www.youtube.com/watch?v=1")
     assert adapter.match_score(douyin) == 220 and adapter.supports(douyin)
     assert adapter.match_score(xhs) == 220 and adapter.supports(xhs)
+    assert adapter.match_score(ks) == 220 and adapter.supports(ks)
     assert not adapter.supports(youtube)
     assert adapter.match_score(youtube) == 10
 
@@ -234,11 +236,47 @@ def test_probe_xhs_risk_control_returns_null_is_stale(tmp_path, monkeypatch):
         run(adapter.probe(url))
 
 def test_unmapped_platform_degrades_to_stale(tmp_path):
-    # kuaishou is not mapped to an in-page extractor yet; both the probe guard
-    # and the direct fetch guard must raise Stale instead of crashing
+    # weibo is not mapped to an in-page extractor; both the probe guard and
+    # the direct fetch guard must raise Stale instead of crashing
     adapter = make_adapter(tmp_path)
-    url = canonicalize("https://www.kuaishou.com/short-video/x")
+    url = canonicalize("https://weibo.com/detail/1")
     with pytest.raises(AdapterStale, match="not mapped"):
         run(adapter.probe(url))
     with pytest.raises(AdapterStale, match="not mapped"):
         run(adapter._fetch_detail(url))
+
+KS_PHOTO = {
+    "photoId": "3x-photo",
+    "caption": "今天吃什么",
+    "duration": 73910,
+    "width": 1080, "height": 1920,
+    "photoUrl": {"adaptationSet": [{"representation": [
+        {"url": "https://cdn/low.mp4", "bitrate": 500},
+        {"url": "https://cdn/high.mp4", "bitrate": 2000, "height": 1920},
+    ]}]},
+    "author": {"id": "au1", "name": "快手博主"},
+}
+
+
+def test_probe_dispatches_kuaishou_photo_parser(tmp_path, monkeypatch):
+    adapter = make_adapter(tmp_path)
+    bs = FakeBootstrapper(result=KS_PHOTO)
+    monkeypatch.setattr("mediavault.adapters.browser_adapter.build_bootstrapper", lambda c: bs)
+    url = canonicalize("https://www.kuaishou.com/short-video/z")
+    resource = run(adapter.probe(url))
+    from mediavault.platform_kuaishou import KS_PHOTO_JS
+    assert bs.calls == [("kuaishou", url.raw_url)]
+    assert bs.expressions == [KS_PHOTO_JS]
+    assert resource.canonical_id == "kuaishou:3x-photo"
+    assert resource.content_type == "video" and resource.author.name == "快手博主"
+    assert resource.items[0].url == "https://cdn/high.mp4"
+
+
+def test_probe_kuaishou_risk_page_null_is_stale(tmp_path, monkeypatch):
+    # datacenter IP returns a bare result:2 body with no Apollo cache -> null
+    adapter = make_adapter(tmp_path)
+    monkeypatch.setattr("mediavault.adapters.browser_adapter.build_bootstrapper",
+                        lambda c: FakeBootstrapper(result=None))
+    url = canonicalize("https://www.kuaishou.com/short-video/z")
+    with pytest.raises(AdapterStale, match="photo missing"):
+        run(adapter.probe(url))

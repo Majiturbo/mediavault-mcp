@@ -27,6 +27,7 @@ from mediavault.browser_session import (
 from mediavault.models import MediaItem, Resource
 from mediavault.network import normalize_proxy
 from mediavault.platform_aweme import AWEME_DETAIL_JS, parse_aweme_detail
+from mediavault.platform_kuaishou import KS_PHOTO_JS, parse_kuaishou_photo
 from mediavault.platform_xhs import XHS_NOTE_JS, parse_xhs_note
 from mediavault.routing import CanonicalURL
 
@@ -36,6 +37,7 @@ from mediavault.routing import CanonicalURL
 _PLATFORM_EXTRACTORS: dict[str, tuple[str, object]] = {
     "douyin": (AWEME_DETAIL_JS, parse_aweme_detail),
     "xiaohongshu": (XHS_NOTE_JS, parse_xhs_note),
+    "kuaishou": (KS_PHOTO_JS, parse_kuaishou_photo),
 }
 _BROWSER_PLATFORMS = frozenset(_PLATFORM_EXTRACTORS)
 _BROWSER_UA = (
