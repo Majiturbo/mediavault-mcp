@@ -20,6 +20,7 @@ import httpx
 
 from mediavault.adapters.base import Adapter, AdapterError, AdapterStale
 from mediavault.browser_session import (
+    _BROWSER_UA,
     BrowserChallengeError,
     BrowserUnavailable,
     build_bootstrapper,
@@ -40,12 +41,6 @@ _PLATFORM_EXTRACTORS: dict[str, tuple[str, object]] = {
     "kuaishou": (KS_PHOTO_JS, parse_kuaishou_photo),
 }
 _BROWSER_PLATFORMS = frozenset(_PLATFORM_EXTRACTORS)
-_BROWSER_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-)
-
-
 def _slug(value: str, limit: int = 80) -> str:
     value = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", value or "").strip("_ .")
     return (value or "untitled")[:limit]

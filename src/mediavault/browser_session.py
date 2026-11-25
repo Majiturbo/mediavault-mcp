@@ -38,6 +38,23 @@ _READINESS_COOKIES: dict[str, frozenset[str]] = {
     "kuaishou": frozenset({"did"}),
 }
 _INSTALL_HINT = 'install the extra with: pip install "mediavault-mcp[browser]"'
+# Real desktop Chrome UA. The headless default UA contains "HeadlessChrome",
+# which CN risk control rejects outright; the context must present a normal UA.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+# Applied before any page script runs. Live tests showed Xiaohongshu/Kuaishou
+# edge risk control rejects a context with navigator.webdriver=true and an empty
+# plugin list even on a clean residential IP; masking those automation signals
+# (plus a real UA, and headed mode where required) lets the anonymous page
+# hydrate. This is fingerprint normalisation, not account login automation.
+_STEALTH_JS = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh']});
+window.chrome = {runtime: {}};
+"""
 
 
 class BrowserUnavailable(RuntimeError):
@@ -107,7 +124,8 @@ class PlaywrightBootstrapper:
             async with runner as api:
                 browser = await self._launch(api)
                 try:
-                    context = await browser.new_context()
+                    context = await browser.new_context(user_agent=_BROWSER_UA)
+                    await context.add_init_script(_STEALTH_JS)
                     page = await context.new_page()
                     await page.goto(
                         url,

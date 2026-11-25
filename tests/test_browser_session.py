@@ -66,6 +66,11 @@ class FakeContext:
     def __init__(self, page, cookie_sequence):
         self._page = page
         self._cookie_sequence = list(cookie_sequence)
+        self.user_agent = None
+        self.init_scripts = []
+
+    async def add_init_script(self, script):
+        self.init_scripts.append(script)
 
     async def new_page(self):
         return self._page
@@ -80,8 +85,11 @@ class FakeBrowser:
     def __init__(self, context):
         self._context = context
         self.closed = False
+        self.context_kwargs = None
 
-    async def new_context(self):
+    async def new_context(self, user_agent=None):
+        self.context_kwargs = {"user_agent": user_agent}
+        self._context.user_agent = user_agent
         return self._context
 
     async def close(self):
@@ -233,3 +241,16 @@ def test_build_bootstrapper_switch(tmp_path):
     assert isinstance(build_bootstrapper(on), PlaywrightBootstrapper)
     off = make_config(tmp_path, **{"MEDIAVAULT_BROWSER_BOOTSTRAP": "off"})
     assert build_bootstrapper(off) is None
+
+def test_context_applies_real_ua_and_stealth(tmp_path, monkeypatch):
+    from mediavault.browser_session import _BROWSER_UA, _STEALTH_JS
+    cfg = make_config(tmp_path)
+    page = FakePage([REAL_HTML])
+    browser, _engine = install_fake_playwright(monkeypatch, page, [READY_COOKIES])
+    run(PlaywrightBootstrapper(cfg).evaluate_after_ready(
+        "douyin", "https://v.douyin.com/x/", "return 1"))
+    assert browser.context_kwargs["user_agent"] == _BROWSER_UA
+    assert "HeadlessChrome" not in _BROWSER_UA
+    context = browser._context
+    assert context.init_scripts == [_STEALTH_JS]
+    assert "webdriver" in _STEALTH_JS and "plugins" in _STEALTH_JS

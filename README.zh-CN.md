@@ -104,6 +104,15 @@ yt-dlp 链路。在数据中心 IP 下，小红书风控可能返回 `300012 网
 返回裸 `{"result": 2}` 响应、均无注水状态，此时适配器给出诚实的 Stale 标记并
 回退，绝不猜测内容。
 
+浏览器上下文始终启用 **stealth 指纹归一化**：桌面 Chrome UA（绝不带
+`HeadlessChrome`）加一段初始化脚本，隐藏 `navigator.webdriver`、空插件列表与
+语言信号。在干净的住宅网络下，这让匿名页面成功注水了真实小红书笔记（图集与
+视频），并带着真实 `did` Cookie 进入快手推荐流。但小红书 / 快手边缘风控即使在
+stealth 下仍能识别 headless Chromium，这两个平台请设
+`MEDIAVAULT_BROWSER_HEADLESS=false`（抖音可在 headless 下工作）。短时间密集自动
+访问可能触发临时隔离（跳登录 / `300012`），冷却后恢复；适配器会报 Stale 而不是
+循环重试。
+
 常驻的 **SSR 适配器**（分数 175）是轻量、无二进制路径：它用浏览器风格 UA 请求分享
 文档，直接解析服务端渲染 HTML 里已内联的状态（小红书 `__INITIAL_STATE__`、快手
 `__APOLLO_STATE__`），不启动 Chromium、不执行任何 JavaScript。在可信住宅网络下，
@@ -187,7 +196,7 @@ MEDIAVAULT_WHISPER_DEVICE=mps                # CI/Linux 用 cpu · Apple 芯片�
 | `MEDIAVAULT_F2_BIN` / `MEDIAVAULT_GALLERYDL_BIN` | `f2` / `gallery-dl` | 覆盖可选 CLI 路径 |
 | `MEDIAVAULT_BROWSER_BOOTSTRAP` | `off` | 设为 `on` 开启本地 Playwright 过挑战适配器（需安装 `browser` 扩展） |
 | `MEDIAVAULT_BROWSER_ENGINE` | `chromium` | `chromium` / `firefox` / `webkit` |
-| `MEDIAVAULT_BROWSER_HEADLESS` | `true` | 设为 `false` 显示浏览器窗口，便于人工查看挑战 |
+| `MEDIAVAULT_BROWSER_HEADLESS` | `true` | 设为 `false` 用有头真实窗口；小红书 / 快手风控能识别 headless Chromium（即使开了 stealth），这两个平台需要有头模式 |
 | `MEDIAVAULT_BROWSER_TIMEOUT_MS` | `30000` | 挑战就绪与 CDN 下载的超时（毫秒） |
 | `MEDIAVAULT_SSR_TIMEOUT_MS` | `20000` | 无浏览器 SSR HTML 取数的超时（毫秒） |
 | `MEDIAVAULT_ASR_BACKEND` | `openai` | `openai`（托管）/ `local`（faster-whisper）/ `off` |
@@ -207,7 +216,7 @@ MEDIAVAULT_WHISPER_DEVICE=mps                # CI/Linux 用 cpu · Apple 芯片�
 2. **逐阶段诚实降级。** 每次适配器失败、每个被跳过的媒体阶段、每个被忽略的 Cookie 文件，都会以标记或备注呈现，绝不隐藏。
 3. **无水印指的是源头原生，而非“已移除”。** 我们从不裁剪或涂抹；无法核实的流保持 `unknown`。
 4. **凭证不出本机。** 不内置第三方解析 Key、无遥测，凭证不进 URL、日志或缓存。
-5. **测接缝、模拟外部世界。** 348 个离线测试做到语句与分支 100% 覆盖；真实 ffmpeg 冒烟测试（含场景检测）在 ffmpeg 存在时运行，否则自动跳过。
+5. **测接缝、模拟外部世界。** 349 个离线测试做到语句与分支 100% 覆盖；真实 ffmpeg 冒烟测试（含场景检测）在 ffmpeg 存在时运行，否则自动跳过。
 
 ## 🗺️ 路线图
 

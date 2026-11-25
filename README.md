@@ -109,6 +109,17 @@ Xiaohongshu risk control can return a `300012 network risk` page and Kuaishou a
 bare `{"result": 2}` body with no hydrated state; the adapter then reports an
 honest Stale marker and falls through rather than guessing.
 
+The browser context always applies **stealth fingerprint normalisation** — a
+desktop Chrome User-Agent (never `HeadlessChrome`) plus an init script that
+masks `navigator.webdriver`, the empty plugin list and language signals. On a
+clean residential network this let the anonymous page hydrate real Xiaohongshu
+notes (image and video) and reach the Kuaishou recommendation feed with a real
+`did` cookie. Headless Chromium is still detected by Xiaohongshu/Kuaishou edge
+risk control even with stealth, so set `MEDIAVAULT_BROWSER_HEADLESS=false` for
+those platforms; Douyin works headless. Dense automated visits can trip a
+temporary quarantine (login/`300012` redirect) that clears after a cooldown —
+the adapter reports Stale rather than retrying in a loop.
+
 The always-on **SSR adapter** (score 175) is the lightweight, binary-free path:
 it requests the share document with a browser-like User-Agent and parses state
 already embedded in the server-rendered HTML (`__INITIAL_STATE__` for
@@ -199,7 +210,7 @@ All settings come from environment variables or `.env` (see
 | `MEDIAVAULT_F2_BIN` / `MEDIAVAULT_GALLERYDL_BIN` | `f2` / `gallery-dl` | Override optional CLI paths |
 | `MEDIAVAULT_BROWSER_BOOTSTRAP` | `off` | `on` enables the local Playwright challenge-clearing adapter (needs the `browser` extra) |
 | `MEDIAVAULT_BROWSER_ENGINE` | `chromium` | `chromium` / `firefox` / `webkit` |
-| `MEDIAVAULT_BROWSER_HEADLESS` | `true` | `false` shows the browser window for manual challenge checks |
+| `MEDIAVAULT_BROWSER_HEADLESS` | `true` | `false` runs a real (headed) window. Required for Xiaohongshu/Kuaishou risk control, which detects headless Chromium even with stealth |
 | `MEDIAVAULT_BROWSER_TIMEOUT_MS` | `30000` | Challenge readiness and CDN download timeout |
 | `MEDIAVAULT_SSR_TIMEOUT_MS` | `20000` | Timeout for the binary-free SSR HTML fetch |
 | `MEDIAVAULT_ASR_BACKEND` | `openai` | `openai` (hosted) / `local` (faster-whisper) / `off` |
@@ -219,7 +230,7 @@ Downloads land in `~/MediaVault/<platform>/<canonical_id>/` alongside
 2. **Degrade honestly, per stage.** Every adapter failure, skipped media stage and ignored cookie file is surfaced as a marker or note — never hidden.
 3. **No-watermark means source-native, not "removed".** We never crop or blur; unverifiable streams stay `unknown`.
 4. **Credentials stay local.** No third-party parser keys, no telemetry, no credentials in URLs, logs or caches.
-5. **Test the seams, mock the world.** 348 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests (including scene detection) run when ffmpeg is present and skip themselves otherwise.
+5. **Test the seams, mock the world.** 349 offline tests at 100% statement and branch coverage; real ffmpeg smoke tests (including scene detection) run when ffmpeg is present and skip themselves otherwise.
 
 ## 🗺️ Roadmap
 

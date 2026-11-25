@@ -37,6 +37,22 @@ adheres to semantic versioning once 1.0.0 is tagged.
     while enabled; missing Playwright, an uncleared challenge or the off switch
     all degrade through `AdapterStale` into the unchanged f2 -> SSR ->
     gallery-dl -> yt-dlp chain.
+- **Stealth fingerprint normalisation + residential-network evidence:**
+  - The browser context now always presents a desktop Chrome User-Agent (never
+    `HeadlessChrome`) and injects an init script masking `navigator.webdriver`,
+    the empty plugin list and language signals. The UA is shared with the SSR
+    and browser CDN clients from one constant in `browser_session`.
+  - On a clean China Telecom residential IP, headed mode plus this stealth layer
+    let the anonymous page hydrate real Xiaohongshu notes (an image set and a
+    video, titles and media counts verified) and reach the Kuaishou
+    recommendation feed with a real `did` cookie; the same context in headless
+    was still redirected to login/`300012`. Xiaohongshu/Kuaishou therefore need
+    `MEDIAVAULT_BROWSER_HEADLESS=false`; Douyin continues to work headless.
+  - Dense automated visits tripped a temporary Xiaohongshu quarantine even with
+    stealth (login/`300012` redirect that later also hit a previously passing
+    headed run), confirming risk control is behavioural and time-based; the
+    adapter keeps reporting Stale instead of retry-looping. This is fingerprint
+    normalisation for anonymous reading, not login automation or account use.
 - **Binary-free SSR adapter (always on, anonymous):**
   - New `ssr_state` extraction: a string-aware brace-matching scan plus tolerant
     JSON decode (bare `undefined` -> null) reads Xiaohongshu `__INITIAL_STATE__`
